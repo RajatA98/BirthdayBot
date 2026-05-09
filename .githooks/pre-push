@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+update_file="$(./scripts/create-ops-update.sh)"
+git add "$update_file"
+
+echo "Generated and staged $update_file"
+echo "Review the ops update, commit it, then push again."
+exit 1

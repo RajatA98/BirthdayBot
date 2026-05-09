@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Review newly introduced ops updates after history changes:"
+./scripts/read-new-ops-updates.sh || true
