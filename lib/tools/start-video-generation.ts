@@ -110,6 +110,23 @@ export async function startVideoGenerationTool(
 
   const submitStartedAt = Date.now();
   const result = await fal.queue.submit(endpoint, { input });
+
+  if (
+    !result?.request_id ||
+    typeof result.request_id !== "string" ||
+    result.request_id.trim() === ""
+  ) {
+    logTimedTask("fal_submit", submitStartedAt, {
+      outcome: "rejected",
+      providerRequestId: result?.request_id
+    });
+    throw new Error(
+      `Video provider accepted the request but returned no job id. Submit response: ${safeStringify(
+        result
+      )}`
+    );
+  }
+
   logTimedTask("fal_submit", submitStartedAt, {
     outcome: "queued",
     providerRequestId: result.request_id
@@ -282,4 +299,12 @@ function logTimedTask(
     durationMs: Date.now() - startedAt,
     ...metadata
   });
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value).slice(0, 500);
+  } catch {
+    return String(value).slice(0, 500);
+  }
 }

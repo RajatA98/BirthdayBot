@@ -263,7 +263,13 @@ function Sidebar({
         </span>
       </button>
 
-      <button className="bb-sticker-button" onClick={() => setView({ name: "wizard", step: 0, friend: blankFriend() })}>
+      <button
+        className="bb-sticker-button"
+        onClick={() => {
+          clearWizardSnapshot();
+          setView({ name: "wizard", step: 0, friend: blankFriend() });
+        }}
+      >
         <Icon name="plus" /> New birthday video
       </button>
 
@@ -326,14 +332,22 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
         <HeroPreview
           friend={hero}
           onOpen={() => setView({ name: "detail", id: hero.id })}
-          onEdit={() => setView({ name: "wizard", step: 2, friend: hero })}
+          onEdit={() => {
+            clearWizardSnapshot();
+            setView({ name: "wizard", step: 2, friend: hero });
+          }}
         />
 
         <section className="bb-section">
           <SectionHead label="Also this week" count={2} />
           <div className="bb-this-week-grid">
             <FeaturedCard friend={friends[1]} onClick={() => setView({ name: "detail", id: friends[1].id })} />
-            <NudgeCard onClick={() => setView({ name: "wizard", step: 0, friend: blankFriend() })} />
+            <NudgeCard
+              onClick={() => {
+                clearWizardSnapshot();
+                setView({ name: "wizard", step: 0, friend: blankFriend() });
+              }}
+            />
           </div>
         </section>
 
@@ -1718,7 +1732,13 @@ function DetailView({ id, setView }: { id: number; setView: (view: View) => void
             <Recipe label="Sends" value={`${friend.dateLong} * ${friend.delivery}`} ok />
           </section>
           <div className="bb-detail-actions">
-            <button className="bb-sticker-button" onClick={() => setView({ name: "wizard", step: 0, friend })}><Icon name="edit" /> Edit video</button>
+            <button
+              className="bb-sticker-button"
+              onClick={() => {
+                clearWizardSnapshot();
+                setView({ name: "wizard", step: 0, friend });
+              }}
+            ><Icon name="edit" /> Edit video</button>
             <button className="bb-outline-button">Send a preview to me</button>
           </div>
         </div>
@@ -2199,6 +2219,15 @@ function writeWizardSnapshot(data: Partial<WizardSnapshot>) {
     );
   } catch {
     // Quota exceeded; silently skip — the in-memory flow keeps working.
+  }
+}
+
+function clearWizardSnapshot() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(wizardSnapshotKey);
+  } catch {
+    // ignore
   }
 }
 

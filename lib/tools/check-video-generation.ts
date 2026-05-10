@@ -147,11 +147,22 @@ export async function checkVideoGenerationTool(job: JobRecord) {
     };
   }
 
+  if (!apiKey) {
+    return {
+      stage: "failed" as const,
+      statusMessage: "Video generation is not configured.",
+      error:
+        "FAL_KEY is required to generate a personalized video. The stock demo fallback is disabled.",
+      voiceOverUrl: job.voiceOverUrl,
+      voiceOverError: job.voiceOverError
+    };
+  }
+
   return {
     stage: "failed" as const,
-    statusMessage: "Video generation is not configured.",
+    statusMessage: "Video provider didn't return a job id.",
     error:
-      "FAL_KEY is required to generate a personalized video. The stock demo fallback is disabled.",
+      "The video provider accepted the request but never assigned a job id. The job has been marked failed; the auto-retry will try again with a safer prompt.",
     voiceOverUrl: job.voiceOverUrl,
     voiceOverError: job.voiceOverError
   };
