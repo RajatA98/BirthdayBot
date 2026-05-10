@@ -1,5 +1,6 @@
 import {
   DraftRequest,
+  GenerateRequest,
   GenerateResponse,
   JobRecord,
   PlanResponse
@@ -7,7 +8,7 @@ import {
 
 export type StudioApi = {
   createPlan(input: DraftRequest): Promise<PlanResponse>;
-  startGeneration(requestId: string): Promise<GenerateResponse>;
+  startGeneration(input: GenerateRequest): Promise<GenerateResponse>;
   getJob(jobId: string): Promise<JobRecord>;
 };
 
@@ -32,13 +33,13 @@ export const studioApi: StudioApi = {
 
     return parseJson<PlanResponse>(response);
   },
-  async startGeneration(requestId) {
+  async startGeneration(input) {
     const response = await fetch("/api/generate", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ requestId })
+      body: JSON.stringify(input)
     });
 
     return parseJson<GenerateResponse>(response);

@@ -47,39 +47,47 @@ export async function analyzePhoto(input: DraftRequest): Promise<PhotoAnalysis> 
   }
 
   const client = new OpenAI({ apiKey });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini",
-    input: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: [
-              "You are BirthdayBot's photo analysis tool.",
-              "Analyze the uploaded image for a birthday-video workflow.",
-              "Count the visible people accurately.",
-              "Describe identity anchors without naming unknown people.",
-              "Describe clothing and composition details that should be preserved."
-            ].join("\n")
-          },
-          {
-            type: "input_image",
-            image_url: input.photoDataUrl,
-            detail: "auto"
-          }
-        ]
+  try {
+    const response = await client.responses.create({
+      model: process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: [
+                "You are BirthdayBot's photo analysis tool.",
+                "Analyze the uploaded image for a birthday-video workflow.",
+                "Count the visible people accurately.",
+                "Describe identity anchors without naming unknown people.",
+                "Describe clothing and composition details that should be preserved."
+              ].join("\n")
+            },
+            {
+              type: "input_image",
+              image_url: input.photoDataUrl,
+              detail: "auto"
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          ...jsonSchema
+        }
       }
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        ...jsonSchema
-      }
-    }
-  });
+    });
 
-  return JSON.parse(response.output_text) as PhotoAnalysis;
+    return JSON.parse(response.output_text) as PhotoAnalysis;
+  } catch (error) {
+    if (shouldFallbackToMockOpenAI(error)) {
+      return buildMockPhotoAnalysis();
+    }
+
+    throw error;
+  }
 }
 
 function buildMockPhotoAnalysis(): PhotoAnalysis {
@@ -101,4 +109,23 @@ function buildMockPhotoAnalysis(): PhotoAnalysis {
     mood: "Warm, celebratory, and emotionally close",
     sceneSummary: "A shared celebratory moment between the visible people in the uploaded photo"
   };
+}
+
+function shouldFallbackToMockOpenAI(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const status = "status" in error ? Number(error.status) : undefined;
+  const message =
+    "message" in error && typeof error.message === "string"
+      ? error.message.toLowerCase()
+      : "";
+
+  return (
+    status === 429 ||
+    message.includes("quota") ||
+    message.includes("billing") ||
+    message.includes("rate limit")
+  );
 }

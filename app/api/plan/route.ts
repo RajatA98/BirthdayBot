@@ -16,6 +16,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (draft.voiceSampleDataUrl && !draft.voiceConsent) {
+      return NextResponse.json(
+        { error: "Confirm voice-cloning consent before submitting a voice sample." },
+        { status: 400 }
+      );
+    }
+
     const generated = await generatePlanAndCaption(draft);
     const record = {
       requestId: makeId("req"),

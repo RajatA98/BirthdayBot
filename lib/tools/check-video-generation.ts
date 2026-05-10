@@ -1,15 +1,8 @@
 import { fal } from "@fal-ai/client";
 
+import { getServerEnv } from "@/lib/server-env";
+import { muxVoiceOverIntoVideo } from "@/lib/tools/mux-voice-over";
 import { JobRecord, JobStage } from "@/lib/types";
-
-const stageSequence: JobStage[] = [
-  "queued",
-  "analyzing",
-  "writing",
-  "generating",
-  "finalizing",
-  "completed"
-];
 
 const stageMessages: Record<JobStage, string> = {
   queued: "Queued and preparing the creative brief.",
@@ -22,11 +15,30 @@ const stageMessages: Record<JobStage, string> = {
   failed: "Generation stalled before a final video was ready."
 };
 
-const stageWindowMs = 1300;
 const providerTimeoutMs = 6 * 60 * 1000;
 
 export async function checkVideoGenerationTool(job: JobRecord) {
-  const apiKey = process.env.FAL_KEY;
+  const apiKey = getServerEnv("FAL_KEY");
+
+  if (job.stage === "completed" && job.videoUrl) {
+    return {
+      stage: "completed" as const,
+      statusMessage: job.statusMessage,
+      videoUrl: job.videoUrl,
+      voiceOverUrl: job.voiceOverUrl,
+      voiceOverError: job.voiceOverError
+    };
+  }
+
+  if (job.stage === "failed") {
+    return {
+      stage: "failed" as const,
+      statusMessage: job.statusMessage,
+      error: job.error,
+      voiceOverUrl: job.voiceOverUrl,
+      voiceOverError: job.voiceOverError
+    };
+  }
 
   if (apiKey && job.providerRequestId && job.providerEndpoint) {
     if (Date.now() - job.createdAt > providerTimeoutMs) {
@@ -41,17 +53,37 @@ export async function checkVideoGenerationTool(job: JobRecord) {
       credentials: apiKey
     });
 
-    const status = await fal.queue.status(job.providerEndpoint, {
-      requestId: job.providerRequestId,
-      logs: true
-    });
+    let status: Awaited<ReturnType<typeof fal.queue.status>>;
+
+    try {
+      status = await fal.queue.status(job.providerEndpoint, {
+        requestId: job.providerRequestId,
+        logs: true
+      });
+    } catch (error) {
+      return {
+        stage: "failed" as const,
+        statusMessage: "The video provider rejected this generation request.",
+        error: providerFailureMessage(error)
+      };
+    }
 
     const providerStatus = String(status.status);
 
     if (providerStatus === "COMPLETED") {
-      const result = await fal.queue.result(job.providerEndpoint, {
-        requestId: job.providerRequestId
-      });
+      let result: Awaited<ReturnType<typeof fal.queue.result>>;
+
+      try {
+        result = await fal.queue.result(job.providerEndpoint, {
+          requestId: job.providerRequestId
+        });
+      } catch (error) {
+        return {
+          stage: "failed" as const,
+          statusMessage: "The provider finished but the final video could not be retrieved.",
+          error: providerFailureMessage(error)
+        };
+      }
       const videoUrl = extractVideoUrl(result.data);
 
       if (!videoUrl) {
@@ -62,10 +94,14 @@ export async function checkVideoGenerationTool(job: JobRecord) {
         };
       }
 
+      const finalVideo = await resolveFinalVideoUrl(videoUrl, job);
+
       return {
         stage: "completed" as const,
         statusMessage: stageMessages.completed,
-        videoUrl
+        videoUrl: finalVideo.videoUrl,
+        voiceOverUrl: finalVideo.voiceOverUrl,
+        voiceOverError: finalVideo.voiceOverError
       };
     }
 
@@ -93,28 +129,55 @@ export async function checkVideoGenerationTool(job: JobRecord) {
     };
   }
 
-  const elapsed = Date.now() - job.createdAt;
-  if (job.stage === "retrying" && elapsed < stageWindowMs) {
+  return {
+    stage: "failed" as const,
+    statusMessage: "Video generation is not configured.",
+    error:
+      "FAL_KEY is required to generate a personalized video. The stock demo fallback is disabled.",
+    voiceOverUrl: job.voiceOverUrl,
+    voiceOverError: job.voiceOverError
+  };
+}
+
+function providerFailureMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Provider request failed.";
+  }
+}
+
+async function resolveFinalVideoUrl(videoUrl: string, job: JobRecord) {
+  if (!job.voiceOverUrl) {
     return {
-      stage: "retrying" as const,
-      statusMessage: stageMessages.retrying
+      videoUrl,
+      voiceOverUrl: job.voiceOverUrl,
+      voiceOverError: job.voiceOverError
     };
   }
 
-  const index = Math.min(
-    Math.floor(elapsed / stageWindowMs),
-    stageSequence.length - 1
-  );
-  const stage = stageSequence[index];
+  try {
+    const voicedVideoUrl = await muxVoiceOverIntoVideo(videoUrl, job.voiceOverUrl);
 
-  return {
-    stage,
-    statusMessage: stageMessages[stage],
-    videoUrl:
-      stage === "completed"
-        ? "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
-        : undefined
-  };
+    return {
+      videoUrl: voicedVideoUrl,
+      voiceOverUrl: undefined,
+      voiceOverError: job.voiceOverError
+    };
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Voice-over muxing failed.";
+
+    return {
+      videoUrl,
+      voiceOverUrl: job.voiceOverUrl,
+      voiceOverError: `${job.voiceOverError ? `${job.voiceOverError} ` : ""}Cloned voice-over was generated, but it could not be merged into the MP4. Preview will play it separately. ${detail}`
+    };
+  }
 }
 
 function inferProviderStage(logs?: Array<{ message?: string }>) {

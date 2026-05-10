@@ -9,7 +9,11 @@ const jobsDir = path.join(rootDir, "jobs");
 
 export function savePlan(record: PlanRecord) {
   ensureDir(plansDir);
-  fs.writeFileSync(planPath(record.requestId), JSON.stringify(record, null, 2), "utf8");
+  fs.writeFileSync(
+    planPath(record.requestId),
+    JSON.stringify(sanitizePlanRecord(record), null, 2),
+    "utf8"
+  );
 }
 
 export function getPlan(requestId: string) {
@@ -27,6 +31,7 @@ export function getJob(jobId: string) {
 
 export function updateJob(jobId: string, updates: Partial<JobRecord>) {
   const current = getJob(jobId);
+
   if (!current) {
     return undefined;
   }
@@ -34,6 +39,17 @@ export function updateJob(jobId: string, updates: Partial<JobRecord>) {
   const next = { ...current, ...updates };
   saveJob(next);
   return next;
+}
+
+function sanitizePlanRecord(record: PlanRecord): PlanRecord {
+  return {
+    ...record,
+    draft: {
+      ...record.draft,
+      voiceSampleDataUrl: undefined,
+      voiceConsent: undefined
+    }
+  };
 }
 
 function ensureDir(dir: string) {
@@ -55,6 +71,22 @@ function readJson<T>(filePath: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function readAllJson<T>(dir: string) {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((fileName) => fileName.endsWith(".json"))
+      .map((fileName) => readJson<T>(path.join(dir, fileName)))
+      .filter((value): value is T => Boolean(value));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
     }
 
     throw error;

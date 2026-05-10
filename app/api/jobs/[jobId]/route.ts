@@ -4,6 +4,8 @@ import { getJob, getPlan, updateJob } from "@/lib/memory-store";
 import { resolveJobStatus } from "@/lib/video-service";
 import { startVideoGeneration } from "@/lib/video-service";
 
+export const runtime = "nodejs";
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ jobId: string }> }
@@ -49,6 +51,7 @@ export async function GET(
 
     return NextResponse.json(updated ?? job);
   } catch (error) {
+    console.error("[jobs] status lookup failed:", error);
     return NextResponse.json(
       {
         error:

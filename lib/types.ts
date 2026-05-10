@@ -16,6 +16,9 @@ export type DraftRequest = {
   prompt: string;
   photoName: string;
   photoDataUrl: string;
+  voiceSampleName?: string;
+  voiceSampleDataUrl?: string;
+  voiceConsent?: boolean;
   advanced: AdvancedSettings;
 };
 
@@ -70,10 +73,13 @@ export type JobRecord = {
   statusMessage: string;
   attempts: number;
   videoUrl?: string;
+  voiceOverUrl?: string;
   caption: string;
   error?: string;
   providerRequestId?: string;
   providerEndpoint?: string;
+  providerVoiceId?: string;
+  voiceOverError?: string;
   createdAt: number;
 };
 
@@ -85,4 +91,11 @@ export type PlanResponse = {
 
 export type GenerateResponse = {
   jobId: string;
+};
+
+export type GenerateRequest = {
+  requestId: string;
+  draft?: DraftRequest;
+  plan?: AgentPlan;
+  caption?: string;
 };
