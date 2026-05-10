@@ -161,8 +161,35 @@ select:focus,
 
 .upload-card {
   display: grid;
-  gap: 4px;
+  gap: 8px;
   cursor: pointer;
+  place-items: center;
+  text-align: center;
+  min-height: 220px;
+  border-style: dashed;
+  border-width: 2px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 248, 241, 0.82)),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(216, 94, 53, 0.04),
+      rgba(216, 94, 53, 0.04) 12px,
+      transparent 12px,
+      transparent 24px
+    );
+}
+
+.upload-card.dragging {
+  border-color: rgba(216, 94, 53, 0.58);
+  background:
+    linear-gradient(180deg, rgba(255, 234, 224, 0.96), rgba(255, 244, 238, 0.92)),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(216, 94, 53, 0.08),
+      rgba(216, 94, 53, 0.08) 12px,
+      transparent 12px,
+      transparent 24px
+    );
 }
 
 .upload-title,
@@ -176,6 +203,24 @@ select:focus,
 .upload-copy,
 .upload-meta {
   color: var(--muted);
+}
+
+.upload-copy.strong {
+  color: var(--text);
+  font-size: clamp(1.6rem, 4vw, 2.35rem);
+  line-height: 1.1;
+}
+
+.upload-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+  color: var(--accent-strong);
+  background: rgba(216, 94, 53, 0.1);
+  border: 1px solid rgba(216, 94, 53, 0.18);
 }
 
 input[type="file"] {

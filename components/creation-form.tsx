@@ -2,9 +2,9 @@
 
 import React, {
   ChangeEvent,
+  DragEvent,
   FormEvent,
   useEffect,
-  useMemo,
   useState
 } from "react";
 
@@ -57,6 +57,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [statusError, setStatusError] = useState("");
   const [copyStatus, setCopyStatus] = useState<"" | "copied" | "failed">("");
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
   const [advanced, setAdvanced] = useState<AdvancedSettings>(
     defaultAdvancedSettings
   );
@@ -116,14 +117,6 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     };
   }, [api, job?.jobId, phase]);
 
-  const summary = useMemo(() => {
-    if (!prompt.trim()) {
-      return "Describe the birthday moment you want and BirthdayBot will build the creative brief.";
-    }
-
-    return `BirthdayBot will shape a ${isAdvanced ? "guided" : "quick"} birthday concept around: "${prompt.trim()}".`;
-  }, [isAdvanced, prompt]);
-
   async function onPhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const nextFile = event.target.files?.[0];
 
@@ -136,6 +129,22 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setPhotoName(nextFile.name);
     setPhotoDataUrl(await fileToDataUrl(nextFile));
     setErrors((current) => ({ ...current, photo: undefined }));
+  }
+
+  async function applyPhotoFile(nextFile?: File) {
+    if (!nextFile) {
+      return;
+    }
+
+    setPhotoName(nextFile.name);
+    setPhotoDataUrl(await fileToDataUrl(nextFile));
+    setErrors((current) => ({ ...current, photo: undefined }));
+  }
+
+  async function onPhotoDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDraggingPhoto(false);
+    await applyPhotoFile(event.dataTransfer.files?.[0]);
   }
 
   function validate() {
@@ -238,6 +247,24 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setStatusError("");
   }
 
+  function startFresh() {
+    setMode("simple");
+    setPrompt("");
+    setPhotoName("");
+    setPhotoDataUrl("");
+    setErrors({});
+    setPhase("draft");
+    setRequestId("");
+    setPlan(null);
+    setCaption("");
+    setJob(null);
+    setStatusError("");
+    setCopyStatus("");
+    setIsStartingGeneration(false);
+    setIsDraggingPhoto(false);
+    setAdvanced(defaultAdvancedSettings);
+  }
+
   async function copyCaption() {
     try {
       await navigator.clipboard.writeText(caption);
@@ -273,7 +300,10 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         <PlanCard label="Scene direction" value={plan.sceneDirection} />
         <PlanCard label="Motion direction" value={plan.motionDirection} />
         <PlanCard label="Generation strategy" value={plan.generationStrategy} />
+        <PlanCard label="Subject count" value={String(plan.subjectCount)} />
         <PlanList label="Keep from photo" items={plan.keepFromPhoto} />
+        <PlanList label="Identity anchors" items={plan.identityAnchors} />
+        <PlanList label="Scene guardrails" items={plan.sceneGuardrails} />
         <PlanCard label="Caption approach" value={plan.captionApproach} />
 
         <section className="summary-card">
@@ -352,6 +382,9 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <button className="ghost-action" type="button" onClick={adjustSettings}>
             Adjust settings
           </button>
+          <button className="ghost-action" type="button" onClick={startFresh}>
+            Make a new video
+          </button>
         </div>
       </section>
     );
@@ -398,13 +431,36 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         </p>
       ) : null}
 
-      <label className="upload-card" htmlFor="photo-upload">
+      <label
+        className={isDraggingPhoto ? "upload-card dragging" : "upload-card"}
+        htmlFor="photo-upload"
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDraggingPhoto(true);
+        }}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setIsDraggingPhoto(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            return;
+          }
+          setIsDraggingPhoto(false);
+        }}
+        onDrop={onPhotoDrop}
+      >
         <span className="upload-title">Shared photo</span>
-        <span className="upload-copy">
-          One image with both people works best for the MVP.
+        <span className="upload-icon" aria-hidden="true">
+          ⤴
+        </span>
+        <span className="upload-copy strong">
+          {photoName ? photoName : "Drag and drop a photo here"}
         </span>
         <span className="upload-meta">
-          {photoName ? `Selected: ${photoName}` : "Tap to choose a photo"}
+          {photoName
+            ? "Photo loaded. You can drop another file to replace it."
+            : "or tap to browse from your device"}
         </span>
       </label>
       <input
@@ -413,7 +469,10 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         type="file"
         accept="image/*"
         aria-label="Shared photo"
-        onChange={onPhotoChange}
+        onChange={async (event) => {
+          await onPhotoChange(event);
+          setIsDraggingPhoto(false);
+        }}
         aria-invalid={Boolean(errors.photo)}
         aria-describedby={errors.photo ? "photo-error" : undefined}
       />
@@ -490,11 +549,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         </section>
       ) : null}
 
-      <section className="summary-card" aria-live="polite">
-        <p className="summary-label">Draft summary</p>
-        <p>{summary}</p>
-        {statusError ? <p className="field-error">{statusError}</p> : null}
-      </section>
+      {statusError ? <p className="field-error">{statusError}</p> : null}
 
       <button className="primary-action" type="submit">
         Build my birthday brief

@@ -17,7 +17,12 @@ const jsonSchema = {
       "captionApproach",
       "generationStrategy",
       "keepFromPhoto",
-      "surpriseFactor"
+      "surpriseFactor",
+      "subjectCount",
+      "identityAnchors",
+      "sceneGuardrails",
+      "safePrompt",
+      "negativePrompt"
     ],
     properties: {
       title: { type: "string" },
@@ -32,7 +37,20 @@ const jsonSchema = {
         items: { type: "string" },
         minItems: 2
       },
-      surpriseFactor: { type: "string" }
+      surpriseFactor: { type: "string" },
+      subjectCount: { type: "integer", minimum: 1, maximum: 6 },
+      identityAnchors: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1
+      },
+      sceneGuardrails: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1
+      },
+      safePrompt: { type: "string" },
+      negativePrompt: { type: "string" }
     }
   },
   strict: true
@@ -54,8 +72,12 @@ export async function generatePlanAndCaption(input: DraftRequest) {
   const prompt = [
     "You are BirthdayBot's planning agent.",
     "Analyze the uploaded shared birthday photo and the user prompt.",
-    "Return a concise cinematic generation plan.",
+    "Return a concise cinematic generation plan plus a strict backend-safe video prompt.",
     "Keep the people recognizable.",
+    "Infer the exact number of visible people and preserve that count.",
+    "Create identity anchors that describe each subject without naming unknown people.",
+    "Generate a safePrompt for the downstream video model that strongly preserves subject count, identity, clothing, and relative position.",
+    "Generate a negativePrompt that explicitly forbids extra people, identity drift, face replacement, subject removal, and outfit replacement.",
     `Mode: ${input.mode}`,
     `User prompt: ${input.prompt}`,
     `Advanced settings: ${JSON.stringify(input.advanced)}`

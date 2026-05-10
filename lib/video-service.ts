@@ -173,12 +173,11 @@ function inferProviderStage(logs?: Array<{ message?: string }>) {
 
 function buildFalPrompt(draft: DraftRequest, plan: PlanRecord["plan"]) {
   return [
-    draft.prompt,
-    plan.concept,
-    plan.sceneDirection,
-    plan.motionDirection,
-    plan.generationStrategy,
-    `Keep these cues from the photo: ${plan.keepFromPhoto.join("; ")}`
+    plan.safePrompt,
+    `Identity anchors: ${plan.identityAnchors.join("; ")}`,
+    `Scene guardrails: ${plan.sceneGuardrails.join("; ")}`,
+    `Keep these cues from the photo: ${plan.keepFromPhoto.join("; ")}`,
+    `Negative constraints: ${plan.negativePrompt}`
   ].join(" ");
 }
 

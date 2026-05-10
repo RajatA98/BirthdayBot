@@ -29,6 +29,11 @@ export type AgentPlan = {
   generationStrategy: string;
   keepFromPhoto: string[];
   surpriseFactor: string;
+  subjectCount: number;
+  identityAnchors: string[];
+  sceneGuardrails: string[];
+  safePrompt: string;
+  negativePrompt: string;
 };
 
 export type PlanRecord = {

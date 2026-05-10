@@ -55,7 +55,12 @@ describe("CreationForm", () => {
         captionApproach: "Personal, warm, and easy to send.",
         generationStrategy: "Stay close to the source photo while elevating the mood.",
         keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish."
+        surpriseFactor: "Add a polished birthday-movie finish.",
+        subjectCount: 2,
+        identityAnchors: ["Woman on left", "Man on right"],
+        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
+        safePrompt: "Preserve exactly two people and animate them naturally.",
+        negativePrompt: "No extra people."
       },
       caption:
         "Happy birthday to one of my favorite people. I wanted this one to feel more personal than a normal text."
@@ -78,6 +83,21 @@ describe("CreationForm", () => {
     expect(createPlan).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Heartfelt birthday reveal")).toBeInTheDocument();
     expect(screen.getByText("Birthday caption")).toBeInTheDocument();
+  });
+
+  it("shows the selected photo name in the upload surface", async () => {
+    const user = userEvent.setup();
+    render(<CreationForm api={makeApi()} />);
+
+    await user.upload(
+      screen.getByLabelText("Shared photo"),
+      new File(["fake-image"], "birthday-duo.png", { type: "image/png" })
+    );
+
+    expect(screen.getByText("birthday-duo.png")).toBeInTheDocument();
+    expect(
+      screen.getByText("Photo loaded. You can drop another file to replace it.")
+    ).toBeInTheDocument();
   });
 
   it("runs through generation progress and shows the result screen", async () => {
@@ -184,6 +204,27 @@ describe("CreationForm", () => {
       expect(screen.getByRole("button", { name: "Caption copied" })).toBeInTheDocument()
     );
   });
+
+  it("resets the flow when making a new video from the result screen", async () => {
+    const user = userEvent.setup();
+
+    render(<CreationForm api={makeApi()} />);
+
+    await fillValidDraft(user);
+    await user.click(screen.getByRole("button", { name: "Build my birthday brief" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Generate birthday video" })).toBeInTheDocument()
+    );
+    await user.click(screen.getByRole("button", { name: "Generate birthday video" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Make a new video" })).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByRole("button", { name: "Make a new video" }));
+
+    expect(screen.getByRole("button", { name: "Build my birthday brief" })).toBeInTheDocument();
+    expect(screen.getByText("Drag and drop a photo here")).toBeInTheDocument();
+  });
 });
 
 async function fillValidDraft(user: ReturnType<typeof userEvent.setup>) {
@@ -210,7 +251,12 @@ function makeApi(overrides: Partial<StudioApi> = {}): StudioApi {
         captionApproach: "Personal, warm, and easy to send.",
         generationStrategy: "Stay close to the source photo while elevating the mood.",
         keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish."
+        surpriseFactor: "Add a polished birthday-movie finish.",
+        subjectCount: 2,
+        identityAnchors: ["Woman on left", "Man on right"],
+        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
+        safePrompt: "Preserve exactly two people and animate them naturally.",
+        negativePrompt: "No extra people."
       },
       caption:
         "Happy birthday to one of my favorite people. I wanted this one to feel more personal than a normal text."

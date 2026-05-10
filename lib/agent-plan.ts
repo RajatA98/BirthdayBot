@@ -23,7 +23,21 @@ export function buildMockPlan(input: DraftRequest): AgentPlan {
       "The feeling of closeness between the two people",
       "The core composition of the original photo"
     ],
-    surpriseFactor: "Add a polished birthday-movie feel without drifting so far that the people stop feeling real."
+    surpriseFactor: "Add a polished birthday-movie feel without drifting so far that the people stop feeling real.",
+    subjectCount: 2,
+    identityAnchors: [
+      "Person 1 remains the left-side subject from the source photo",
+      "Person 2 remains the right-side subject from the source photo",
+      "Keep faces, hair, and clothing recognizable"
+    ],
+    sceneGuardrails: [
+      "Preserve exactly the people visible in the source image",
+      "Keep the original scene grounded in the uploaded photo",
+      "Do not invent a new cast or swap identities"
+    ],
+    safePrompt: `Animate the source image into a short cinematic birthday video. Preserve exactly 2 people from the uploaded image. Keep their identities, faces, hair, clothing, body proportions, and positions recognizable. Do not add, remove, duplicate, or replace any person. Keep the original scene grounded in the source image. User intent: ${subject}. Add subtle natural motion, realistic celebration energy, and a polished birthday atmosphere while staying faithful to the source photo.`,
+    negativePrompt:
+      "No extra people. No duplicate person. No identity drift. No face replacement. No gender swap. No outfit replacement. No subject removal. No scene rewrite that removes one of the original people."
   };
 }
 
