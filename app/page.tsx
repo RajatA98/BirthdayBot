@@ -427,11 +427,12 @@ function HeroPreview({ friend, onOpen, onEdit }: { friend: Friend; onOpen: () =>
       <div className="bb-hero-copy">
         <p className="bb-kicker"><i /> Up next * Sunday, May 10</p>
         <h1>
-          Cecilia&apos;s about to get the <mark>cutest thing</mark> in her inbox.
+          Never miss a birthday again. <mark>Relive your favorite memories.</mark>
         </h1>
         <p>
-          Her postcard is sealed and queued for <strong>Thursday at 9 AM</strong>. Hit play to see exactly what
-          she&apos;ll get, or sneak in one more inside joke.
+          BirthdayBot automatically sends your friends and family personalized
+          videos on their birthday. <strong>One photo, one voice sample</strong> —
+          that&apos;s all it takes to bring your favorite moments back to life.
         </p>
         <div className="bb-hero-actions">
           <button className="bb-sticker-button" onClick={onOpen}><Icon name="play" /> Play the postcard</button>
