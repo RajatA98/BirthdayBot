@@ -1513,8 +1513,13 @@ svg {
   color: white;
 }
 
+.bb-step-panel:has(.bb-preview-layout) {
+  max-width: 1100px;
+}
+
 .bb-preview-layout {
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 28px;
 }
 
 .bb-preview-side {
