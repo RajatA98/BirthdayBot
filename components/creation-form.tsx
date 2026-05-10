@@ -54,6 +54,9 @@ type PersistedVoiceDraft = {
   voiceSampleDataUrl: string;
   voiceSampleClips: string[];
   voiceSampleSource: "" | "recorded" | "uploaded";
+  // Optional — older entries written before this field was added still
+  // hydrate fine; they just default voiceMode to "narrate" on load.
+  voiceMode?: VoiceMode;
 };
 
 type FormErrors = {
@@ -205,6 +208,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       setVoiceSampleDataUrl(voiceDraft.voiceSampleDataUrl);
       setVoiceSampleClipsData(voiceDraft.voiceSampleClips);
       setVoiceSampleSource(voiceDraft.voiceSampleSource);
+      // Restore the voice mode the user was last in — otherwise after a
+      // reload they'd land on "narrate" and the speak-yourself recording
+      // UI would be hidden, which reads as "my samples disappeared" even
+      // when the data is in fact restored.
+      if (voiceDraft.voiceMode) {
+        setVoiceMode(voiceDraft.voiceMode);
+      }
       // Reconstruct guided clip Blob slots so the stepper shows complete
       // state. Consent is intentionally NOT persisted — the user re-confirms
       // each session.
@@ -234,7 +244,8 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       voiceSampleName,
       voiceSampleDataUrl,
       voiceSampleClips: voiceSampleClipsData,
-      voiceSampleSource
+      voiceSampleSource,
+      voiceMode
     });
     if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
       const stored = window.localStorage.getItem(voiceDraftStorageKey);
@@ -247,7 +258,8 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     voiceSampleDataUrl,
     voiceSampleName,
     voiceSampleClipsData,
-    voiceSampleSource
+    voiceSampleSource,
+    voiceMode
   ]);
 
   useEffect(() => {
@@ -869,29 +881,28 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   }
 
   function startFresh() {
+    // "Make a new video" wipes the in-progress birthday session (photo,
+    // prompt, plan, etc.) but PRESERVES the user's recorded voice samples
+    // and cached ElevenLabs voice clone. Re-recording the voice every
+    // time someone wants a second birthday video is a punishing UX —
+    // the explicit "Re-record voice sample" button on the voice card is
+    // the one place we wipe voice state. Voice samples carry a 7-day TTL
+    // and live under `birthdaybot:voice-draft`, separate from the session
+    // blob.
     clearPersistedSession();
-    clearVoiceDraft();
-    clearCachedVoiceId();
     setMode("simple");
-    setVoiceMode("narrate");
     setSongStyle("Acoustic");
     setUserMessageDataUrl("");
     setUserMessageDuration(0);
     setPrompt("");
     setPhotoName("");
     setPhotoDataUrl("");
-    setVoiceSampleName("");
-    setVoiceSampleDataUrl("");
-    setVoiceSampleClipsData([]);
     setVoiceQualityWarning("");
     setVoiceConsent(false);
     setRecordingState("idle");
     setRecordingSeconds(0);
-    setVoiceSampleSource("");
     setRecordingError("");
     setErrors({});
-    setActiveVoicePromptIndex(0);
-    setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
     setPhase("draft");
     setRequestId("");
     setPlannedDraft(null);
