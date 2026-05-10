@@ -16,7 +16,8 @@ import {
   AgentPlan,
   DraftRequest,
   JobRecord,
-  PlanRecord
+  PlanRecord,
+  VoiceMode
 } from "@/lib/types";
 
 const sessionStorageKey = "birthdaybot:active";
@@ -105,6 +106,14 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [voiceSampleClipsData, setVoiceSampleClipsData] = useState<string[]>([]);
   const [voiceQualityWarning, setVoiceQualityWarning] = useState("");
   const [voiceConsent, setVoiceConsent] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>("narrate");
+  const [userMessageDataUrl, setUserMessageDataUrl] = useState("");
+  const [userMessageDuration, setUserMessageDuration] = useState(0);
+  const [userMessageRecording, setUserMessageRecording] = useState(false);
+  const userMessageRecorderRef = useRef<MediaRecorder | null>(null);
+  const userMessageStreamRef = useRef<MediaStream | null>(null);
+  const userMessageChunksRef = useRef<Blob[]>([]);
+  const userMessageStartedAtRef = useRef<number>(0);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceSampleSource, setVoiceSampleSource] = useState<
@@ -187,6 +196,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
     return () => {
       stopVoiceStream(voiceStreamRef.current);
+      stopVoiceStream(userMessageStreamRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -234,6 +244,18 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       clearInterval(timer);
     };
   }, [recordingState]);
+
+  useEffect(() => {
+    if (!userMessageRecording) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setUserMessageDuration((current) => current + 1);
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [userMessageRecording]);
 
   useEffect(() => {
     if (phase !== "generating" || !job || !plannedDraft || !plan) {
@@ -560,6 +582,86 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     }
   }
 
+  async function startUserMessageRecording() {
+    if (!isRecorderSupported || typeof navigator === "undefined") return;
+    setRecordingError("");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = preferredRecordingMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      userMessageStreamRef.current = stream;
+      userMessageRecorderRef.current = recorder;
+      userMessageChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          userMessageChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setRecordingError("Message recording failed.");
+        setUserMessageRecording(false);
+        stopVoiceStream(userMessageStreamRef.current);
+        userMessageStreamRef.current = null;
+      };
+
+      recorder.onstop = async () => {
+        const recordingType = recorder.mimeType || mimeType || "audio/webm";
+        const recording = new Blob(userMessageChunksRef.current, {
+          type: recordingType
+        });
+        stopVoiceStream(userMessageStreamRef.current);
+        userMessageStreamRef.current = null;
+        setUserMessageRecording(false);
+
+        if (!recording.size) {
+          setRecordingError(
+            "The message recording was empty. Please try again."
+          );
+          return;
+        }
+
+        try {
+          const dataUrl = await fileToDataUrl(recording);
+          setUserMessageDataUrl(dataUrl);
+        } catch {
+          setRecordingError(
+            "The message recording could not be saved. Try again."
+          );
+        }
+      };
+
+      userMessageStartedAtRef.current = Date.now();
+      recorder.start();
+      setUserMessageRecording(true);
+      setUserMessageDuration(0);
+    } catch {
+      stopVoiceStream(userMessageStreamRef.current);
+      userMessageStreamRef.current = null;
+      setRecordingError(
+        "Microphone access was blocked. Allow the microphone or try again."
+      );
+    }
+  }
+
+  function stopUserMessageRecording() {
+    const recorder = userMessageRecorderRef.current;
+    if (recorder?.state === "recording") {
+      recorder.stop();
+    }
+  }
+
+  function clearUserMessage() {
+    setUserMessageDataUrl("");
+    setUserMessageDuration(0);
+    setRecordingError("");
+  }
+
   function validate() {
     const nextErrors: FormErrors = {};
 
@@ -580,6 +682,18 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         "Confirm you have the rights to clone this voice before continuing.";
     }
 
+    if (voiceMode === "speak-yourself") {
+      if (!voiceSampleDataUrl) {
+        nextErrors.voiceSample =
+          "Record-yourself mode still needs a calibration sample so the cloned voice matches.";
+      }
+      if (!userMessageDataUrl) {
+        nextErrors.voiceSample =
+          (nextErrors.voiceSample ? `${nextErrors.voiceSample} ` : "") +
+          "Record the actual birthday message in your own voice before generating.";
+      }
+    }
+
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
@@ -597,6 +711,8 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         ? voiceSampleClipsData
         : undefined,
       voiceConsent: voiceSampleDataUrl ? voiceConsent : undefined,
+      voiceMode,
+      userMessageDataUrl: userMessageDataUrl || undefined,
       advanced
     };
   }
@@ -698,6 +814,9 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     clearPersistedSession();
     clearVoiceDraft();
     setMode("simple");
+    setVoiceMode("narrate");
+    setUserMessageDataUrl("");
+    setUserMessageDuration(0);
     setPrompt("");
     setPhotoName("");
     setPhotoDataUrl("");
@@ -1039,6 +1158,63 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         </p>
       ) : null}
 
+      <section className="voice-mode-card" aria-label="Voice mode">
+        <p className="summary-label">Voice mode</p>
+        <p className="voice-mode-help">
+          Pick how the birthday message reaches them.
+        </p>
+        <div
+          className="voice-mode-options"
+          role="radiogroup"
+          aria-label="Voice mode"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={voiceMode === "narrate"}
+            className={
+              voiceMode === "narrate"
+                ? "voice-mode-pill active"
+                : "voice-mode-pill"
+            }
+            onClick={() => setVoiceMode("narrate")}
+          >
+            <strong>AI narrates</strong>
+            <span>Cloned voice reads the script for you.</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={voiceMode === "speak-yourself"}
+            className={
+              voiceMode === "speak-yourself"
+                ? "voice-mode-pill active"
+                : "voice-mode-pill"
+            }
+            onClick={() => setVoiceMode("speak-yourself")}
+          >
+            <strong>Record yourself</strong>
+            <span>Speak the message; we polish your real delivery.</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={voiceMode === "song"}
+            className={
+              voiceMode === "song"
+                ? "voice-mode-pill active"
+                : "voice-mode-pill"
+            }
+            onClick={() => setVoiceMode("song")}
+            disabled
+            title="Coming soon"
+          >
+            <strong>Sing it</strong>
+            <span>AI-generated birthday song. Coming soon.</span>
+          </button>
+        </div>
+      </section>
+
       <section className="voice-recorder" aria-label="Voice input">
         <div className="voice-recorder-header">
           <div>
@@ -1245,6 +1421,52 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         ) : null}
         {recordingError ? <p className="field-error">{recordingError}</p> : null}
       </section>
+
+      {voiceMode === "speak-yourself" ? (
+        <section className="voice-message-card" aria-label="Your spoken message">
+          <p className="summary-label">Your spoken message</p>
+          <h3>Now record the actual message — in your own voice.</h3>
+          <p className="voice-mode-help">
+            Speak the birthday message naturally — laugh, pause, get
+            emotional. We'll polish the delivery and use it as the
+            voice-over. Aim for 8–20 seconds.
+          </p>
+          <div className="voice-recorder-actions">
+            {userMessageRecording ? (
+              <button
+                className="primary-action"
+                type="button"
+                onClick={stopUserMessageRecording}
+              >
+                Finish message ({formatDuration(userMessageDuration)})
+              </button>
+            ) : (
+              <button
+                className="primary-action"
+                type="button"
+                onClick={startUserMessageRecording}
+                disabled={!isRecorderSupported}
+              >
+                {userMessageDataUrl
+                  ? "Re-record message"
+                  : "Record your message"}
+              </button>
+            )}
+            {userMessageDataUrl ? (
+              <button
+                className="ghost-action"
+                type="button"
+                onClick={clearUserMessage}
+              >
+                Remove message
+              </button>
+            ) : null}
+          </div>
+          {userMessageDataUrl ? (
+            <audio controls src={userMessageDataUrl} />
+          ) : null}
+        </section>
+      ) : null}
 
       {isAdvanced ? (
         <section className="advanced-grid" aria-label="Advanced controls">
