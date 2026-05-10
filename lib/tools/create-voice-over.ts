@@ -4,6 +4,9 @@ import { getServerEnv } from "@/lib/server-env";
 
 const elevenLabsBaseUrl = "https://api.elevenlabs.io/v1";
 const defaultElevenLabsTtsModel = "eleven_multilingual_v2";
+// Rachel — warm, neutral, clear narrator voice; works well for birthday
+// content. Override with ELEVENLABS_STOCK_VOICE_ID env var if needed.
+const defaultStockVoiceId = "21m00Tcm4TlvDq8ikWAM";
 
 export type VoiceOverResult = {
   providerVoiceId?: string;
@@ -48,59 +51,148 @@ async function createVoiceOverInner(
     };
   }
 
-  const draft = planRecord.draft;
-
-  if (!draft.voiceSampleDataUrl) {
-    return {};
-  }
-
-  if (!draft.voiceConsent) {
-    return {
-      voiceOverError:
-        "Voice-over skipped because voice-cloning consent was not confirmed."
-    };
-  }
-
   const apiKey = getServerEnv("ELEVENLABS_API_KEY") || getServerEnv("XI_API_KEY");
 
   if (!apiKey) {
     return {
       voiceOverError:
-        "ELEVENLABS_API_KEY is required to generate a cloned voice-over."
+        "ELEVENLABS_API_KEY is required to generate a voice-over."
     };
   }
 
-  let voiceId: string | undefined;
+  const draft = planRecord.draft;
+  const text = birthdayVoiceOverText(planRecord.caption);
+  const hasSample = Boolean(draft.voiceSampleDataUrl || draft.voiceSampleClips?.length);
+  const hasConsent = Boolean(draft.voiceConsent);
+
+  // Try the user's cloned voice first — only if they uploaded a sample AND
+  // explicitly confirmed cloning consent. Without consent we never upload
+  // their voice, but we still narrate using a stock voice.
+  if (hasSample && hasConsent) {
+    let voiceId: string | undefined;
+    try {
+      voiceId = await createElevenLabsVoice(draft, apiKey);
+      const voiceOverUrl = await createElevenLabsSpeech(
+        voiceId,
+        text,
+        apiKey,
+        {
+          stability: 0.48,
+          similarity_boost: 0.86,
+          style: 0.12,
+          use_speaker_boost: true
+        }
+      );
+
+      draft.voiceSampleName = undefined;
+      draft.voiceSampleDataUrl = undefined;
+      draft.voiceSampleClips = undefined;
+      draft.voiceConsent = undefined;
+
+      return {
+        providerVoiceId: voiceId,
+        voiceOverUrl
+      };
+    } catch (error) {
+      console.warn(
+        "[birthdaybot:voice_clone] cloning failed, falling back to stock voice:",
+        error instanceof Error ? error.message : error
+      );
+      // fall through to stock-voice fallback
+    } finally {
+      if (voiceId) {
+        await deleteElevenLabsVoice(voiceId, apiKey);
+      }
+    }
+  }
+
+  // Stock-voice fallback: prompt-aware voice selection so a mariachi
+  // birthday gets a warm Latin-leaning voice, a soft cinematic one gets
+  // a tender voice, etc. Caption text stays as-is — translation is a
+  // separate enhancement.
+  const stockVoiceId =
+    getServerEnv("ELEVENLABS_STOCK_VOICE_ID") ||
+    pickStockVoice(planRecord) ||
+    defaultStockVoiceId;
 
   try {
-    voiceId = await createElevenLabsVoice(draft, apiKey);
     const voiceOverUrl = await createElevenLabsSpeech(
-      voiceId,
-      birthdayVoiceOverText(planRecord.caption),
-      apiKey
+      stockVoiceId,
+      text,
+      apiKey,
+      {
+        stability: 0.55,
+        similarity_boost: 0.7,
+        style: 0.2,
+        use_speaker_boost: true
+      }
     );
-
-    draft.voiceSampleName = undefined;
-    draft.voiceSampleDataUrl = undefined;
-    draft.voiceConsent = undefined;
-
-    return {
-      providerVoiceId: voiceId,
-      voiceOverUrl
-    };
+    return { voiceOverUrl };
   } catch (error) {
     return {
-      providerVoiceId: voiceId,
       voiceOverError:
         error instanceof Error
           ? error.message
           : "ElevenLabs voice-over generation failed."
     };
-  } finally {
-    if (voiceId) {
-      await deleteElevenLabsVoice(voiceId, apiKey);
+  }
+}
+
+type StockVoice = {
+  id: string;
+  match: RegExp;
+  name: string;
+};
+
+const stockVoiceCatalog: StockVoice[] = [
+  // Mariachi / fiesta / Latin → Antoni (warm, works well for Spanish phrasing)
+  {
+    id: "ErXwobaYiN019PkySvjV",
+    name: "Antoni",
+    match: /\b(mariachi|fiesta|salsa|tango|cumbia|espa[nñ]ol|spanish|latino|latina|flamenco|reggaet[oó]n)\b/i
+  },
+  // Soft / tender / intimate → Bella (soft young female)
+  {
+    id: "EXAVITQu4vr4xnSDxMaL",
+    name: "Bella",
+    match: /\b(tender|intimate|soft|whisper|quiet|gentle|serene|calm|cozy|sweet|loving)\b/i
+  },
+  // Playful / fun / party → Domi (confident young female)
+  {
+    id: "AZnzlk1XvdvUeBnXmlld",
+    name: "Domi",
+    match: /\b(playful|fun|party|hype|excited|exciting|festive|wild|crazy|lively|dance|disco)\b/i
+  },
+  // Cinematic / epic / dramatic → Adam (deep narrative voice)
+  {
+    id: "pNInz6obpgDQGcFmaJgB",
+    name: "Adam",
+    match: /\b(cinematic|epic|dramatic|movie|trailer|grand|sweeping|hollywood|noir|saga)\b/i
+  }
+];
+
+function pickStockVoice(planRecord: PlanRecord): string | undefined {
+  const haystack = [
+    planRecord.draft.prompt,
+    planRecord.plan.title,
+    planRecord.plan.concept,
+    planRecord.plan.vibe,
+    planRecord.plan.sceneDirection,
+    planRecord.plan.surpriseFactor,
+    planRecord.draft.advanced.tone,
+    planRecord.draft.advanced.sceneIdea,
+    planRecord.draft.advanced.musicVibe
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  for (const voice of stockVoiceCatalog) {
+    if (voice.match.test(haystack)) {
+      return voice.id;
     }
   }
+
+  return undefined;
 }
 
 async function createElevenLabsVoice(draft: DraftRequest, apiKey: string) {
@@ -145,7 +237,13 @@ async function createElevenLabsVoice(draft: DraftRequest, apiKey: string) {
 async function createElevenLabsSpeech(
   voiceId: string,
   text: string,
-  apiKey: string
+  apiKey: string,
+  voiceSettings: {
+    stability: number;
+    similarity_boost: number;
+    style: number;
+    use_speaker_boost: boolean;
+  }
 ) {
   const response = await fetch(
     `${elevenLabsBaseUrl}/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
@@ -158,12 +256,7 @@ async function createElevenLabsSpeech(
       body: JSON.stringify({
         text,
         model_id: getServerEnv("ELEVENLABS_TTS_MODEL") || defaultElevenLabsTtsModel,
-        voice_settings: {
-          stability: 0.48,
-          similarity_boost: 0.86,
-          style: 0.12,
-          use_speaker_boost: true
-        }
+        voice_settings: voiceSettings
       })
     }
   );

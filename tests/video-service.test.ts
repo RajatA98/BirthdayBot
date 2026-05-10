@@ -272,10 +272,17 @@ describe("startVideoGeneration voice-over", () => {
     expect(planRecord.draft.voiceConsent).toBeUndefined();
   });
 
-  it("does not submit a voice sample to ElevenLabs without confirmed consent", async () => {
+  it("does not upload the voice sample to ElevenLabs IVC without consent, but still produces narration with a stock voice", async () => {
     process.env.FAL_KEY = "test-fal-key";
     process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
-    const fetchMock = vi.fn<typeof fetch>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -289,11 +296,81 @@ describe("startVideoGeneration voice-over", () => {
 
     const result = await startVideoGeneration(planRecord, makeJob());
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.voiceOverError).toBe(
-      "Voice-over skipped because voice-cloning consent was not confirmed."
+    // IVC voices/add must NOT be called - that is the consent guarantee.
+    const ivcCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith("/v1/voices/add")
     );
+    expect(ivcCalls).toHaveLength(0);
+
+    // Stock TTS must be called and the result has a voice-over URL.
+    const ttsCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/text-to-speech/")
+    );
+    expect(ttsCalls.length).toBeGreaterThan(0);
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,AQID");
+    expect(result.voiceOverError).toBeUndefined();
     expect(result.providerRequestId).toBe("fal_request_123");
+  });
+
+  it("falls back to a stock voice when no voice sample is provided at all", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(new Uint8Array([4, 5, 6]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" }
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(makeDraft());
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/v1/text-to-speech/")
+      )
+    ).toBe(true);
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BAUG");
+    expect(result.voiceOverError).toBeUndefined();
+  });
+
+  it("falls back to a stock voice when ElevenLabs IVC fails (e.g. free tier)", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // 1) IVC voices/add fails (e.g. free tier 401)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "voice cloning not available on this tier" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      // 2) Stock TTS succeeds
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([7, 8, 9]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true
+      })
+    );
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BwgJ");
+    expect(result.voiceOverError).toBeUndefined();
   });
 
   it("fails clearly instead of falling back to the stock demo video when fal is not configured", async () => {

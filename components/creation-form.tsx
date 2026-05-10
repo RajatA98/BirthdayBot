@@ -1088,6 +1088,21 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
               ) : (
                 <audio controls src={voiceSampleDataUrl} />
               )}
+              {voiceSampleClipsData.length > 1 ? (
+                <ul className="voice-clip-list" aria-label="Each recorded take">
+                  {voiceSampleClipsData.map((clipUrl, index) => (
+                    <li key={index} className="voice-clip-item">
+                      <span className="voice-clip-label">
+                        Take {index + 1}
+                        {voiceSamplePrompts[index]
+                          ? ` · ${voiceSamplePrompts[index].tone}`
+                          : ""}
+                      </span>
+                      <audio controls src={clipUrl} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <button className="ghost-action" type="button" onClick={clearVoiceSample}>
                 Remove voice sample
               </button>
@@ -1517,9 +1532,15 @@ function findNextMissingVoicePromptIndex(clips: Array<Blob | null>) {
   return clips.findIndex((clip) => !clip);
 }
 
-async function combineRecordedClips(clips: Array<Blob | null>, mimeType: string) {
+async function combineRecordedClips(
+  clips: Array<Blob | null>,
+  _mimeType: string
+) {
   const definedClips = clips.filter((clip): clip is Blob => Boolean(clip));
 
+  if (definedClips.length === 0) {
+    throw new Error("No recorded clips to combine");
+  }
   if (definedClips.length === 1) {
     return definedClips[0];
   }
@@ -1533,18 +1554,37 @@ async function combineRecordedClips(clips: Array<Blob | null>, mimeType: string)
       : undefined;
 
   if (!AudioContextCtor) {
-    return new Blob(definedClips, { type: mimeType });
+    // No WebAudio - return the first clip alone as a playable preview
+    // rather than a corrupt byte-concatenation of multiple webm streams.
+    return definedClips[0];
   }
 
   const audioContext = new AudioContextCtor();
 
   try {
-    const buffers = await Promise.all(
-      definedClips.map(async (clip) => {
+    // Decode each clip independently; skip any that fail rather than
+    // tanking the whole concatenation. This protects against odd
+    // MediaRecorder webm/opus quirks across browsers.
+    const buffers: AudioBuffer[] = [];
+    for (const clip of definedClips) {
+      try {
         const bytes = await clip.arrayBuffer();
-        return await audioContext.decodeAudioData(bytes.slice(0));
-      })
-    );
+        const buffer = await audioContext.decodeAudioData(bytes.slice(0));
+        buffers.push(buffer);
+      } catch (error) {
+        console.warn(
+          "[birthdaybot:combine_clips] decodeAudioData failed for one take, skipping",
+          error
+        );
+      }
+    }
+
+    if (buffers.length === 0) {
+      // None decoded - the preview can't be merged. Return the first
+      // raw clip so the user still hears something playable. Backend
+      // gets all 3 takes via voiceSampleClipsData regardless.
+      return definedClips[0];
+    }
 
     const maxChannels = Math.max(...buffers.map((buffer) => buffer.numberOfChannels));
     const sampleRate = buffers[0]?.sampleRate || 44100;
@@ -1565,8 +1605,12 @@ async function combineRecordedClips(clips: Array<Blob | null>, mimeType: string)
     }
 
     return encodeWavBlob(combined);
-  } catch {
-    return new Blob(definedClips, { type: mimeType });
+  } catch (error) {
+    console.warn(
+      "[birthdaybot:combine_clips] combine failed, returning first clip",
+      error
+    );
+    return definedClips[0];
   } finally {
     await audioContext.close().catch(() => undefined);
   }

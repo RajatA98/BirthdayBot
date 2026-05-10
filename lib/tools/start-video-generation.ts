@@ -41,7 +41,10 @@ export async function startVideoGenerationTool(
           ? "error"
           : result.voiceOverUrl
             ? "ready"
-            : "skipped"
+            : "skipped",
+        ...(result.voiceOverError
+          ? { errorMessage: result.voiceOverError }
+          : {})
       });
       return result;
     }),
