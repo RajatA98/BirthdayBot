@@ -114,7 +114,16 @@ function muxFfmpegArgs({
     "-t",
     String(durationSeconds),
     "-filter_complex",
-    "[2:a:0]volume=0.14,apad[party_bed];[1:a:0]volume=1.45,acompressor=threshold=-20dB:ratio=3:attack=6:release=100,alimiter=limit=0.95,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
+    [
+      // Voice bus: gain-up, gentle compression, split for sidechain key + final mix
+      "[1:a:0]volume=1.45,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,asplit=2[voice_main][voice_key]",
+      // Music bus: nominal gain, padded so we always have audio for the full duration
+      "[2:a:0]volume=0.32,apad[music_pre]",
+      // Sidechain duck: music is ATTENUATED in real time when the voice key is present
+      "[music_pre][voice_key]sidechaincompress=threshold=0.05:ratio=8:attack=8:release=320:makeup=1[music_ducked]",
+      // Final mix: voice + ducked music, then loudness-normalize to social/mobile target (-16 LUFS)
+      "[voice_main][music_ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]"
+    ].join(";"),
     "-map",
     "0:v:0",
     "-map",
