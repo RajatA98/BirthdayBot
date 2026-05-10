@@ -13,6 +13,7 @@ export type AdvancedSettings = {
 
 export type DraftRequest = {
   mode: Mode;
+  birthdayName?: string;
   prompt: string;
   photoName: string;
   photoDataUrl: string;
@@ -79,6 +80,7 @@ export type JobRecord = {
   providerRequestId?: string;
   providerEndpoint?: string;
   providerVoiceId?: string;
+  targetDurationSeconds?: number;
   voiceOverError?: string;
   createdAt: number;
 };

@@ -48,6 +48,9 @@ describe("CreationForm", () => {
       screen.getByText("Describe what the birthday video should feel like.")
     ).toBeInTheDocument();
     expect(
+      screen.getByText("Add their name for the birthday text.")
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("Add one shared photo to continue.")
     ).toBeInTheDocument();
   });
@@ -108,7 +111,12 @@ describe("CreationForm", () => {
         captionApproach: "Personal, warm, and easy to send.",
         generationStrategy: "Stay close to the source photo while elevating the mood.",
         keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish."
+        surpriseFactor: "Add a polished birthday-movie finish.",
+        subjectCount: 2,
+        identityAnchors: ["Woman on left", "Man on right"],
+        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
+        safePrompt: "Preserve exactly two people and animate them naturally.",
+        negativePrompt: "No extra people."
       },
       caption: "Happy birthday from me to you."
     }));
@@ -179,7 +187,12 @@ describe("CreationForm", () => {
         captionApproach: "Personal, warm, and easy to send.",
         generationStrategy: "Stay close to the source photo while elevating the mood.",
         keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish."
+        surpriseFactor: "Add a polished birthday-movie finish.",
+        subjectCount: 2,
+        identityAnchors: ["Woman on left", "Man on right"],
+        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
+        safePrompt: "Preserve exactly two people and animate them naturally.",
+        negativePrompt: "No extra people."
       },
       caption: "Happy birthday from me to you."
     }));
@@ -369,6 +382,7 @@ describe("CreationForm", () => {
       expect.objectContaining({
         requestId: "req_123",
         draft: expect.objectContaining({
+          birthdayName: "Maya",
           prompt: "Make it feel like a funny rooftop birthday movie trailer.",
           photoName: "birthday-duo.png"
         }),
@@ -380,11 +394,15 @@ describe("CreationForm", () => {
       })
     );
     expect(screen.getByText("Generation in progress")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Birthday video loading animation" })
+    ).toBeInTheDocument();
 
     await waitFor(() =>
       expect(screen.getByText("Birthday package ready")).toBeInTheDocument()
     , { timeout: 2500 });
-    expect(screen.getByText("Caption one. Caption two. Caption three.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Happy Birthday Maya")).toBeInTheDocument();
+    expect(screen.queryByText(/Caption one/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Caption four/)).not.toBeInTheDocument();
     expect(screen.queryByText("Birthday caption")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download video" })).toHaveAttribute(
@@ -503,6 +521,7 @@ class MockMediaRecorder {
 }
 
 async function fillValidDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText("Birthday name"), "Maya");
   await user.type(
     screen.getByLabelText("Prompt"),
     "Make it feel like a funny rooftop birthday movie trailer."

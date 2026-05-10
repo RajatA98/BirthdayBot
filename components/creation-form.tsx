@@ -20,6 +20,7 @@ import {
 
 type FormErrors = {
   photo?: string;
+  birthdayName?: string;
   prompt?: string;
   voiceSample?: string;
   voiceConsent?: string;
@@ -37,6 +38,7 @@ const tones = [
 ] as const;
 
 const sceneIdeas = [
+  "Birthday party",
   "Birthday dinner",
   "Beach golden hour",
   "Road trip montage",
@@ -67,6 +69,7 @@ const voiceSamplePrompts = [
 
 export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [mode, setMode] = useState<"simple" | "advanced">("simple");
+  const [birthdayName, setBirthdayName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [photoName, setPhotoName] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState("");
@@ -416,6 +419,10 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       nextErrors.photo = "Add one shared photo to continue.";
     }
 
+    if (!birthdayName.trim()) {
+      nextErrors.birthdayName = "Add their name for the birthday text.";
+    }
+
     if (!prompt.trim()) {
       nextErrors.prompt = "Describe what the birthday video should feel like.";
     }
@@ -432,6 +439,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   function buildDraft(): DraftRequest {
     return {
       mode,
+      birthdayName: birthdayName.trim(),
       prompt: prompt.trim(),
       photoName,
       photoDataUrl,
@@ -615,8 +623,21 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         {statusError ? <p className="field-error">{statusError}</p> : null}
 
         <div className="action-row">
-          <button className="primary-action" type="button" onClick={startGeneration}>
-            Generate birthday video
+          <button
+            className="primary-action"
+            type="button"
+            onClick={startGeneration}
+            disabled={isStartingGeneration}
+            aria-busy={isStartingGeneration}
+          >
+            {isStartingGeneration ? (
+              <>
+                <span className="button-spinner" aria-hidden="true" />
+                Starting generation
+              </>
+            ) : (
+              "Generate birthday video"
+            )}
           </button>
           <button className="ghost-action" type="button" onClick={adjustSettings}>
             Adjust prompt
@@ -633,6 +654,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     return (
       <section className="status-panel" aria-live="polite">
         <p className="summary-label">Generation in progress</p>
+        <GenerationLoader stage={job.stage} />
         <h2>{stageHeading(job.stage)}</h2>
         <p>{job.statusMessage}</p>
         {job.attempts > 1 ? (
@@ -659,6 +681,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           caption={caption}
           videoUrl={job.videoUrl}
           voiceOverUrl={job.voiceOverUrl}
+          birthdayName={plannedDraft?.birthdayName}
         />
         {job.voiceOverError ? (
           <p className="field-error">{job.voiceOverError}</p>
@@ -714,6 +737,27 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           Advanced
         </button>
       </div>
+
+      <label className="field">
+        <span>Birthday name</span>
+        <input
+          aria-label="Birthday name"
+          name="birthday-name"
+          placeholder="Maya"
+          value={birthdayName}
+          onChange={(event) => {
+            setBirthdayName(event.target.value);
+            setErrors((current) => ({ ...current, birthdayName: undefined }));
+          }}
+          aria-invalid={Boolean(errors.birthdayName)}
+          aria-describedby={errors.birthdayName ? "birthday-name-error" : undefined}
+        />
+      </label>
+      {errors.birthdayName ? (
+        <p className="field-error" id="birthday-name-error">
+          {errors.birthdayName}
+        </p>
+      ) : null}
 
       <label className="field">
         <span>Prompt</span>
@@ -918,9 +962,9 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
               ? `Read the ${activeVoiceStep.tone.toLowerCase()} phrase, then stop the take.`
               : isVoiceCalibrationComplete
                 ? "Sample ready. Re-record any tone if you want a better match."
-              : recordedVoiceCount
-                ? `Next up: ${activeVoiceStep.tone.toLowerCase()} tone.`
-                : "Start with neutral, then record excited, then warm."}
+                : recordedVoiceCount
+                  ? `Next up: ${activeVoiceStep.tone.toLowerCase()} tone.`
+                  : "Start with neutral, then record excited, then warm."}
           </span>
         </div>
 
@@ -1007,7 +1051,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <SelectField
             label="Video length"
             value={advanced.videoLength}
-            options={["5 seconds", "10 seconds", "15 seconds"]}
+            options={["15 seconds", "10 seconds", "20 seconds"]}
             onChange={(value) =>
               setAdvanced((current) => ({ ...current, videoLength: value }))
             }
@@ -1067,11 +1111,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 function ResultVideo({
   caption,
   videoUrl,
-  voiceOverUrl
+  voiceOverUrl,
+  birthdayName
 }: {
   caption: string;
   videoUrl: string;
   voiceOverUrl?: string;
+  birthdayName?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -1132,10 +1178,11 @@ function ResultVideo({
       ) : null}
       <div
         className="video-caption-overlay"
-        aria-label={`Happy Birthday! ${videoOverlayCaption(caption)}`}
+        aria-label={birthdayOverlayLine(birthdayName, caption)}
       >
-        <span className="video-caption-title">Happy Birthday!</span>
-        <span className="video-caption-message">{videoOverlayCaption(caption)}</span>
+        <span className="video-caption-title">
+          {birthdayOverlayLine(birthdayName, caption)}
+        </span>
       </div>
     </div>
   );
@@ -1168,6 +1215,24 @@ function SelectField({
         ))}
       </select>
     </label>
+  );
+}
+
+function GenerationLoader({ stage }: { stage: JobRecord["stage"] }) {
+  return (
+    <div className="generation-loader" role="img" aria-label="Birthday video loading animation">
+      <div className="loader-film" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="loader-orbit" aria-hidden="true">
+        <span className="loader-spark one" />
+        <span className="loader-spark two" />
+        <span className="loader-spark three" />
+      </div>
+      <p>{stageHeading(stage)}</p>
+    </div>
   );
 }
 
@@ -1240,30 +1305,15 @@ function stageHeading(stage: JobRecord["stage"]) {
   }
 }
 
-function videoOverlayCaption(caption: string) {
-  const fallback = "Happy Birthday! Hope your day feels as special as you are.";
-  const normalized = compactCaptionText(caption || fallback);
+function birthdayOverlayLine(name: string | undefined, caption: string) {
+  const resolvedName = name?.trim() || birthdayNameFromCaption(caption);
 
-  if (normalized.length <= 220) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, 217).trim()}...`;
+  return resolvedName ? `Happy Birthday ${resolvedName}` : "Happy Birthday";
 }
 
-function compactCaptionText(caption: string) {
-  const sentences = caption
-    .replace(/\s+/g, " ")
-    .trim()
-    .match(/[^.!?]+[.!?]?/g)
-    ?.map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  if (!sentences?.length) {
-    return "Happy Birthday! Hope your day feels as special as you are.";
-  }
-
-  return sentences.slice(0, 3).join(" ");
+function birthdayNameFromCaption(caption: string) {
+  const match = caption.match(/^happy birthday(?:\s+to)?\s+([^.!?,]+)/i);
+  return match?.[1]?.trim() || "";
 }
 
 function findNextMissingVoicePromptIndex(clips: Array<Blob | null>) {
@@ -1286,7 +1336,7 @@ async function combineRecordedClips(clips: Array<Blob | null>, mimeType: string)
       : undefined;
 
   if (!AudioContextCtor) {
-    return new Blob(clips, { type: mimeType });
+    return new Blob(definedClips, { type: mimeType });
   }
 
   const audioContext = new AudioContextCtor();

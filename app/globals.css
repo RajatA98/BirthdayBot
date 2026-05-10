@@ -101,7 +101,6 @@ h1 {
   accent-color: var(--accent-strong);
 }
 
-
 .mode-toggle {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -554,6 +553,136 @@ input[type="file"] {
   border-color: rgba(216, 94, 53, 0.24);
 }
 
+.generation-loader {
+  position: relative;
+  min-height: 168px;
+  margin: 18px 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(216, 94, 53, 0.22);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 250, 244, 0.92), rgba(255, 226, 214, 0.7)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(143, 39, 18, 0.08) 0 16px,
+      transparent 16px 32px
+    );
+}
+
+.generation-loader::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(255, 216, 107, 0.42),
+    transparent,
+    rgba(46, 125, 90, 0.22),
+    transparent
+  );
+  animation: loader-warm-spin 7s linear infinite;
+}
+
+.generation-loader p {
+  position: relative;
+  z-index: 2;
+  align-self: end;
+  margin: 0 0 18px;
+  color: var(--accent-strong);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.loader-film {
+  position: relative;
+  z-index: 2;
+  width: 92px;
+  height: 68px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  padding: 10px;
+  border-radius: 14px;
+  background: #23140b;
+  box-shadow: 0 16px 34px rgba(77, 43, 15, 0.22);
+  animation: loader-float 1.8s ease-in-out infinite;
+}
+
+.loader-film::before,
+.loader-film::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 5px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #fffaf4 0 6px,
+    transparent 6px 12px
+  );
+}
+
+.loader-film::before {
+  top: 4px;
+}
+
+.loader-film::after {
+  bottom: 4px;
+}
+
+.loader-film span {
+  border-radius: 9px;
+  background: linear-gradient(180deg, #ffd86b, #f15c38);
+  animation: loader-frame-pulse 1.15s ease-in-out infinite;
+}
+
+.loader-film span:nth-child(2) {
+  animation-delay: 140ms;
+}
+
+.loader-film span:nth-child(3) {
+  animation-delay: 280ms;
+}
+
+.loader-orbit {
+  position: absolute;
+  z-index: 1;
+  width: 150px;
+  height: 150px;
+  border-radius: 999px;
+  animation: loader-warm-spin 2.8s linear infinite;
+}
+
+.loader-spark {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 18px rgba(216, 94, 53, 0.72);
+  transform: rotate(45deg);
+}
+
+.loader-spark.one {
+  top: 8px;
+  left: 50%;
+}
+
+.loader-spark.two {
+  right: 14px;
+  bottom: 34px;
+  background: var(--success);
+}
+
+.loader-spark.three {
+  left: 18px;
+  bottom: 42px;
+  background: #ffd86b;
+}
+
 .result-video-frame {
   position: relative;
   overflow: hidden;
@@ -645,16 +774,70 @@ input[type="file"] {
   }
 }
 
+@keyframes loader-warm-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes loader-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+@keyframes loader-frame-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scaleY(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
 .success-note {
   margin-top: 12px !important;
   color: var(--success);
 }
 
 .primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
   padding: 15px 18px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
   color: white;
   font-weight: 600;
+}
+
+.button-spinner {
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-top-color: white;
+  border-radius: 999px;
+  animation: loader-warm-spin 760ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generation-loader::before,
+  .loader-film,
+  .loader-film span,
+  .loader-orbit,
+  .button-spinner {
+    animation-duration: 1ms;
+    animation-iteration-count: 1;
+  }
 }
 
 .primary-action:disabled,
@@ -737,8 +920,6 @@ input[type="file"] {
     grid-template-columns: 1fr;
   }
 
-  .scheduler-header,
-  .scheduler-grid,
   .voice-recorder-header {
     grid-template-columns: 1fr;
   }

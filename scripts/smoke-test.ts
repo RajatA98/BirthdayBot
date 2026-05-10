@@ -11,7 +11,7 @@ async function main() {
   const draft: DraftRequest = {
     mode: "simple",
     prompt:
-      "Create a warm, cinematic birthday moment with soft camera motion and a heartfelt vibe.",
+      "remove screams in background of audio. audio should be the narration, and some party background music at low volume.",
     photoName: "smoke-test.png",
     photoDataUrl,
     advanced: {
