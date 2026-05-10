@@ -3,7 +3,11 @@ import { DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { getServerEnv } from "@/lib/server-env";
 
 const elevenLabsBaseUrl = "https://api.elevenlabs.io/v1";
-const defaultElevenLabsTtsModel = "eleven_multilingual_v2";
+// v3 is ElevenLabs' most emotionally expressive model and supports inline
+// audio tags like [warmly] / [whispers]. Higher latency than v2 but our
+// pipeline is offline (mux happens after fal completes) so the TTFB cost
+// is irrelevant. Override with ELEVENLABS_TTS_MODEL if needed.
+const defaultElevenLabsTtsModel = "eleven_v3";
 // Rachel — warm, neutral, clear narrator voice; works well for birthday
 // content. Override with ELEVENLABS_STOCK_VOICE_ID env var if needed.
 const defaultStockVoiceId = "21m00Tcm4TlvDq8ikWAM";
@@ -114,13 +118,15 @@ async function createVoiceOverInner(
       voiceId = await createElevenLabsVoice(draft, apiKey);
       const voiceOverUrl = await createElevenLabsSpeech(
         voiceId,
-        text,
+        addAudioTag(text, planRecord.plan.narrationVoiceCue),
         apiKey,
         {
-          stability: 0.48,
-          similarity_boost: 0.86,
-          style: 0.12,
-          use_speaker_boost: true
+          // v3 baseline tuned for emotional birthday narration (per
+          // ElevenLabs TTS playground docs).
+          stability: 0.45,
+          similarity_boost: 0.75,
+          style: 0,
+          use_speaker_boost: false
         }
       );
 
@@ -167,13 +173,13 @@ async function createVoiceOverInner(
   try {
     const voiceOverUrl = await createElevenLabsSpeech(
       stockVoiceId,
-      text,
+      addAudioTag(text, planRecord.plan.narrationVoiceCue),
       apiKey,
       {
-        stability: 0.55,
+        stability: 0.5,
         similarity_boost: 0.7,
-        style: 0.2,
-        use_speaker_boost: true
+        style: 0,
+        use_speaker_boost: false
       }
     );
     return { voiceOverUrl };
@@ -494,6 +500,39 @@ async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
       "xi-api-key": apiKey
     }
   }).catch(() => undefined);
+}
+
+// Map a narrationVoiceCue (e.g. "warm Punjabi-accented male, mid-energy")
+// to a single ElevenLabs v3 audio tag prepended to the script. v3 silently
+// drops unknown tags so this fails safe. Tag list per ElevenLabs help:
+// https://help.elevenlabs.io/hc/en-us/articles/35869142561297
+const audioTagCatalog: Array<{ match: RegExp; tag: string }> = [
+  {
+    match: /(tender|intimate|soft|whisper|gentle|cozy|sweet|loving|warm)/i,
+    tag: "[warmly]"
+  },
+  {
+    match: /(festive|excited|exciting|playful|hype|party|fun|wild|crazy|lively|disco)/i,
+    tag: "[excited]"
+  },
+  {
+    match: /(cinematic|epic|dramatic|grand|sweeping|trailer|noir|saga)/i,
+    tag: "[reverently]"
+  },
+  {
+    match: /(funny|witty|humor|chuckle|laugh|joke|comedic)/i,
+    tag: "[chuckles]"
+  }
+];
+
+export function addAudioTag(text: string, cue?: string): string {
+  if (!cue) return text;
+  for (const entry of audioTagCatalog) {
+    if (entry.match.test(cue)) {
+      return `${entry.tag} ${text}`;
+    }
+  }
+  return text;
 }
 
 function birthdayVoiceOverText(caption: string) {

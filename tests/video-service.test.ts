@@ -261,6 +261,22 @@ describe("startVideoGeneration voice-over", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/text-to-speech/eleven_voice_123?output_format=mp3_44100_128"
     );
+    const ttsBody = fetchMock.mock.calls[1]?.[1]?.body;
+    expect(typeof ttsBody).toBe("string");
+    const ttsParsed = JSON.parse(String(ttsBody)) as {
+      model_id: string;
+      voice_settings: Record<string, number | boolean>;
+      text: string;
+    };
+    expect(ttsParsed.model_id).toBe("eleven_v3");
+    expect(ttsParsed.voice_settings).toEqual({
+      stability: 0.45,
+      similarity_boost: 0.75,
+      style: 0,
+      use_speaker_boost: false
+    });
+    // narrationVoiceCue "warm American female, intimate" => [warmly] tag
+    expect(ttsParsed.text.startsWith("[warmly]")).toBe(true);
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/voices/eleven_voice_123"
     );
