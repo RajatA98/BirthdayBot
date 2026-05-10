@@ -50,3 +50,13 @@
 - Added server-side plan generation, app-owned async generation routes, progress polling, result/refinement UI, `OpenAI` and `fal` integration wrappers, and mock fallbacks for demo safety.
 - Added automatic retry on failed generation states and finalized review/test/deployment artifacts.
 - Verified the final repo state with `npm test` and `npm run build`.
+
+## 2026-05-09
+
+- Merged `feature/birthdaybot-next` back into `main`.
+- `main` now includes the four core backend tools: `analyze_photo`, `plan_birthday_video`, `start_video_generation`, and `check_video_generation`.
+- Upgraded the default `fal` video model to Kling `v3`, switched the internal prompt layer to a director-style structure, and added a backend download proxy for more reliable video downloads.
+- Added file-backed local plan/job persistence for development so the generate step no longer loses the plan between requests.
+- Updated `README.md` with the current architecture, setup steps, env vars, testing commands, key files, and known limitations.
+- Current status: end-to-end flow works, video generation is working, but prompt quality still needs tuning on real photos to reduce subject drift and improve output consistency.
+- Next: keep testing against a small golden set of photos/prompts and refine the prompt-engineering layer before broader demo use.
