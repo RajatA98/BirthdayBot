@@ -36,6 +36,15 @@ export type AgentPlan = {
   negativePrompt: string;
 };
 
+export type PhotoAnalysis = {
+  subjectCount: number;
+  identityAnchors: string[];
+  clothingAnchors: string[];
+  compositionAnchors: string[];
+  mood: string;
+  sceneSummary: string;
+};
+
 export type PlanRecord = {
   requestId: string;
   draft: DraftRequest;

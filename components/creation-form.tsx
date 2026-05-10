@@ -362,7 +362,10 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         </section>
 
         <div className="action-row">
-          <a className="primary-action link-action" href={job.videoUrl} download>
+          <a
+            className="primary-action link-action"
+            href={`/api/download/${job.jobId}`}
+          >
             Download video
           </a>
           <button
