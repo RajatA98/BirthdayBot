@@ -68,6 +68,10 @@ OPENAI_CAPTION_MODEL=gpt-4.1-mini
 FAL_KEY=
 FAL_VIDEO_MODEL=fal-ai/kling-video/v3/standard/image-to-video
 
+ELEVENLABS_API_KEY=
+ELEVENLABS_TTS_MODEL=eleven_multilingual_v2
+USE_AI_MUSIC=
+
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
@@ -78,6 +82,8 @@ Notes:
 - If `OPENAI_API_KEY` is missing, the app falls back to mock planning and caption generation.
 - If `FAL_KEY` is missing, the app falls back to a mock video-generation flow.
 - `FAL_VIDEO_MODEL` should stay on `fal-ai/kling-video/v3/standard/image-to-video` unless the team is intentionally testing a different endpoint.
+- `ELEVENLABS_API_KEY` powers both voice cloning and the AI-generated background music bed. Without it, the mux step uses `public/audio/party-music.mp3` (or a synthetic lavfi tone if that file is missing).
+- `USE_AI_MUSIC` overrides the AI music behavior: set `true` to force-on, `false` to force-off. If unset, AI music is automatically enabled whenever `ELEVENLABS_API_KEY` is present, with safe fallback to the static file on any failure.
 - `Langfuse` is optional but recommended for tracing prompt decisions, timings, retries, and provider outcomes during real-photo testing.
 
 ## Testing

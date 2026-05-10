@@ -163,14 +163,42 @@ async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
 }
 
 function birthdayVoiceOverText(caption: string) {
-  const fallback = "Happy birthday. I hope your day feels as special as you are.";
-  const normalized = (caption || fallback).replace(/\s+/g, " ").replaceAll('"', "'");
+  const fallback = "Happy birthday. I hope today makes you feel celebrated and loved.";
+  const cleaned = cleanNarrationScript(caption || fallback);
+  const limited = limitVoiceOverWords(cleaned);
 
-  if (normalized.length <= 180) {
-    return normalized;
+  if (limited.length <= 260) {
+    return limited;
   }
 
-  return `${normalized.slice(0, 177).trim()}...`;
+  return limited.slice(0, 257).trim();
+}
+
+function cleanNarrationScript(script: string) {
+  const cleaned = script
+    .replace(/\s+/g, " ")
+    .replaceAll('"', "'")
+    .replace(/^\s*(?:voice[\s-]?over|narration|script|caption)\s*:\s*/i, "")
+    .replace(/^\s*(?:um+|uh+|ah+|erm+|hmm+|okay|ok|testing|test|one two(?: three)?)[,.\s-]+/i, "")
+    .replace(/\.+$/g, ".")
+    .trim();
+  const birthdayStart = cleaned.search(/\bhappy birthday\b/i);
+
+  if (birthdayStart > 0 && birthdayStart <= 90) {
+    return cleaned.slice(birthdayStart).trim();
+  }
+
+  return cleaned || "Happy birthday. I hope today makes you feel celebrated and loved.";
+}
+
+function limitVoiceOverWords(text: string) {
+  const words = text.split(/\s+/).filter(Boolean);
+
+  if (words.length <= 34) {
+    return text;
+  }
+
+  return words.slice(0, 34).join(" ");
 }
 
 async function providerErrorMessage(response: Response, fallback: string) {

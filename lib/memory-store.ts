@@ -76,19 +76,3 @@ function readJson<T>(filePath: string) {
     throw error;
   }
 }
-
-function readAllJson<T>(dir: string) {
-  try {
-    return fs
-      .readdirSync(dir)
-      .filter((fileName) => fileName.endsWith(".json"))
-      .map((fileName) => readJson<T>(path.join(dir, fileName)))
-      .filter((value): value is T => Boolean(value));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
-}

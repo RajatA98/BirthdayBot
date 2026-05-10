@@ -78,8 +78,15 @@ export async function startVideoGenerationTool(
     ...job,
     ...voiceOver,
     providerRequestId: result.request_id,
-    providerEndpoint: endpoint
+    providerEndpoint: endpoint,
+    targetDurationSeconds: targetVideoDurationSeconds(planRecord.draft)
   };
+}
+
+function targetVideoDurationSeconds(draft: PlanRecord["draft"]) {
+  const requested =
+    draft.mode === "advanced" ? draft.advanced.videoLength : "15 seconds";
+  return Number(requested.match(/\d+/)?.[0] || "15");
 }
 
 function dataUrlToBlob(dataUrl: string, name: string) {

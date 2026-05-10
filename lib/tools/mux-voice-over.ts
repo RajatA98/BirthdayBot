@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,10 +10,26 @@ import { fal } from "@fal-ai/client";
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 
-export async function muxVoiceOverIntoVideo(videoUrl: string, voiceOverUrl: string) {
-  const ffmpegPath = getFfmpegPath();
+const partyMusicAssetPath = join(
+  process.cwd(),
+  "public",
+  "audio",
+  "party-music.mp3"
+);
+const defaultVideoDurationSeconds = 15;
+const maxMuxedVideoDurationSeconds = 20;
+const finalVideoBitrateKbps = 4500;
+const finalVideoAudioBitrateKbps = 96;
 
-  if (!ffmpegPath) {
+export async function muxVoiceOverIntoVideo(
+  videoUrl: string,
+  voiceOverUrl: string,
+  targetDurationSeconds = maxMuxedVideoDurationSeconds,
+  musicBedBytes?: Buffer
+) {
+  const ffmpegBin = getFfmpegPath();
+
+  if (!ffmpegBin) {
     throw new Error("ffmpeg binary is not available.");
   }
 
@@ -29,27 +45,31 @@ export async function muxVoiceOverIntoVideo(videoUrl: string, voiceOverUrl: stri
     await writeFile(inputVideo, video.bytes);
     await writeFile(inputVoice, voiceOver.bytes);
 
-    await execFileAsync(ffmpegPath, [
-      "-y",
-      "-i",
-      inputVideo,
-      "-i",
+    let aiMusicPath: string | undefined;
+
+    if (musicBedBytes && musicBedBytes.byteLength > 0) {
+      aiMusicPath = join(workspace, "ai-music.mp3");
+      await writeFile(aiMusicPath, musicBedBytes);
+    }
+
+    const muxDurationSeconds = await finalMuxedVideoDurationSeconds(
+      ffmpegBin,
       inputVoice,
-      "-map",
-      "0:v:0",
-      "-map",
-      "1:a:0",
-      "-c:v",
-      "copy",
-      "-c:a",
-      "aac",
-      "-af",
-      "apad",
-      "-shortest",
-      "-movflags",
-      "+faststart",
-      outputVideo
-    ]);
+      targetDurationSeconds
+    );
+    const partyMusicInput = await partyMusicInputArgs(aiMusicPath);
+
+    await execFileAsync(
+      ffmpegBin,
+      muxFfmpegArgs({
+        inputVideo,
+        inputVoice,
+        outputVideo,
+        partyMusicInput,
+        durationSeconds: muxDurationSeconds,
+        videoBitrateKbps: finalVideoBitrateKbps
+      })
+    );
 
     const outputBytes = await readFile(outputVideo);
 
@@ -61,6 +81,129 @@ export async function muxVoiceOverIntoVideo(videoUrl: string, voiceOverUrl: stri
   } finally {
     await rm(workspace, { force: true, recursive: true });
   }
+}
+
+function muxFfmpegArgs({
+  inputVideo,
+  inputVoice,
+  outputVideo,
+  partyMusicInput,
+  durationSeconds,
+  videoBitrateKbps
+}: {
+  inputVideo: string;
+  inputVoice: string;
+  outputVideo: string;
+  partyMusicInput: string[];
+  durationSeconds: number;
+  videoBitrateKbps: number;
+}) {
+  return [
+    "-y",
+    "-i",
+    inputVideo,
+    "-i",
+    inputVoice,
+    ...partyMusicInput,
+    "-t",
+    String(durationSeconds),
+    "-filter_complex",
+    "[2:a:0]volume=0.14,apad[party_bed];[1:a:0]volume=1.45,acompressor=threshold=-20dB:ratio=3:attack=6:release=100,alimiter=limit=0.95,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
+    "-map",
+    "0:v:0",
+    "-map",
+    "[aout]",
+    "-vf",
+    "scale='if(gte(iw,ih),-2,720)':'if(gte(iw,ih),720,-2)'",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-b:v",
+    `${videoBitrateKbps}k`,
+    "-maxrate",
+    `${videoBitrateKbps}k`,
+    "-bufsize",
+    `${videoBitrateKbps * 2}k`,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    `${finalVideoAudioBitrateKbps}k`,
+    "-shortest",
+    "-movflags",
+    "+faststart",
+    outputVideo
+  ];
+}
+
+async function partyMusicInputArgs(aiMusicPath?: string) {
+  if (aiMusicPath) {
+    return ["-stream_loop", "-1", "-i", aiMusicPath];
+  }
+
+  try {
+    await access(partyMusicAssetPath);
+    return ["-stream_loop", "-1", "-i", partyMusicAssetPath];
+  } catch {
+    return ["-f", "lavfi", "-i", partyMusicLavfiSource()];
+  }
+}
+
+async function finalMuxedVideoDurationSeconds(
+  ffmpegBin: string,
+  inputVoice: string,
+  targetDurationSeconds: number
+) {
+  const target = Math.max(1, targetDurationSeconds || defaultVideoDurationSeconds);
+  const voiceDuration = await audioDurationSeconds(ffmpegBin, inputVoice);
+  const neededForVoice = Math.ceil((voiceDuration || 0) + 0.75);
+
+  return Math.min(Math.max(target, neededForVoice), maxMuxedVideoDurationSeconds);
+}
+
+async function audioDurationSeconds(ffmpegBin: string, inputAudio: string) {
+  try {
+    const { stderr } = await execFileAsync(ffmpegBin, [
+      "-hide_banner",
+      "-i",
+      inputAudio
+    ]);
+
+    return durationSecondsFromFfmpegOutput(stderr);
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error
+        ? String((error as { stderr?: unknown }).stderr || "")
+        : "";
+
+    return durationSecondsFromFfmpegOutput(stderr);
+  }
+}
+
+function durationSecondsFromFfmpegOutput(output: string) {
+  const match = output.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
+function partyMusicLavfiSource() {
+  return [
+    "aevalsrc=",
+    "'",
+    "0.08*sin(2*PI*220*t)*(gt(mod(t\\,0.5)\\,0.08))",
+    "+0.06*sin(2*PI*277.18*t)*(gt(mod(t\\,0.5)\\,0.08))",
+    "+0.05*sin(2*PI*329.63*t)*(gt(mod(t\\,0.5)\\,0.08))",
+    "+0.04*sin(2*PI*440*t)*(gt(mod(t\\,0.25)\\,0.04))",
+    "+0.05*sin(2*PI*880*t)*(lt(mod(t\\,1)\\,0.035))",
+    "'",
+    ":s=44100"
+  ].join("");
 }
 
 async function mediaUrlToBuffer(url: string) {
