@@ -25,7 +25,7 @@ export async function muxVoiceOverIntoVideo(
   videoUrl: string,
   voiceOverUrl: string,
   targetDurationSeconds = maxMuxedVideoDurationSeconds,
-  musicBedBytes?: Buffer
+  musicBedUrl?: string
 ) {
   const ffmpegBin = getFfmpegPath();
 
@@ -36,8 +36,14 @@ export async function muxVoiceOverIntoVideo(
   const workspace = await mkdtemp(join(tmpdir(), "birthdaybot-voice-"));
 
   try {
-    const video = await mediaUrlToBuffer(videoUrl);
-    const voiceOver = await mediaUrlToBuffer(voiceOverUrl);
+    const [video, voiceOver, musicBed] = await Promise.all([
+      mediaUrlToBuffer(videoUrl),
+      mediaUrlToBuffer(voiceOverUrl),
+      musicBedUrl
+        ? mediaUrlToBuffer(musicBedUrl).catch(() => undefined)
+        : Promise.resolve(undefined)
+    ]);
+
     const inputVideo = join(workspace, "input.mp4");
     const inputVoice = join(workspace, "voice-over.mp3");
     const outputVideo = join(workspace, "voiced-output.mp4");
@@ -47,9 +53,9 @@ export async function muxVoiceOverIntoVideo(
 
     let aiMusicPath: string | undefined;
 
-    if (musicBedBytes && musicBedBytes.byteLength > 0) {
+    if (musicBed && musicBed.bytes.byteLength > 0) {
       aiMusicPath = join(workspace, "ai-music.mp3");
-      await writeFile(aiMusicPath, musicBedBytes);
+      await writeFile(aiMusicPath, musicBed.bytes);
     }
 
     const muxDurationSeconds = await finalMuxedVideoDurationSeconds(

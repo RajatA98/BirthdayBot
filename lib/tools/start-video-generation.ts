@@ -4,6 +4,7 @@ import { getLangfuse } from "@/lib/langfuse";
 import { getServerEnv } from "@/lib/server-env";
 import { buildFalInput } from "@/lib/tools/build-video-input";
 import { createVoiceOver } from "@/lib/tools/create-voice-over";
+import { generateAiMusicBed } from "@/lib/tools/generate-music-bed";
 import { JobRecord, PlanRecord } from "@/lib/types";
 
 export async function startVideoGenerationTool(
@@ -21,8 +22,39 @@ export async function startVideoGenerationTool(
     };
   }
 
-  const requestedVoiceOver = Boolean(planRecord.draft.voiceSampleDataUrl);
-  const voiceOver = await createVoiceOver(planRecord, job);
+  fal.config({ credentials: apiKey });
+
+  const targetDurationSeconds = targetVideoDurationSeconds(planRecord.draft);
+  const requestedVoiceOver = Boolean(
+    planRecord.draft.voiceSampleDataUrl || planRecord.draft.voiceSampleClips?.length
+  );
+
+  const photoStartedAt = Date.now();
+  const voiceStartedAt = Date.now();
+  const musicStartedAt = Date.now();
+
+  const [uploadedUrl, voiceOver, musicBedUrl] = await Promise.all([
+    uploadPhoto(planRecord),
+    createVoiceOver(planRecord, job).then((result) => {
+      logTimedTask("voice_over", voiceStartedAt, {
+        outcome: result.voiceOverError
+          ? "error"
+          : result.voiceOverUrl
+            ? "ready"
+            : "skipped"
+      });
+      return result;
+    }),
+    uploadMusicBed(planRecord, targetDurationSeconds).then((url) => {
+      logTimedTask("music_bed", musicStartedAt, {
+        outcome: url ? "ready" : "skipped"
+      });
+      return url;
+    })
+  ]);
+
+  logTimedTask("photo_upload", photoStartedAt, { outcome: "ready" });
+
   const videoDraft = requestedVoiceOver
     ? {
         ...planRecord.draft,
@@ -31,16 +63,9 @@ export async function startVideoGenerationTool(
       }
     : planRecord.draft;
 
-  fal.config({
-    credentials: apiKey
-  });
-
-  const endpoint = getServerEnv("FAL_VIDEO_MODEL") || "fal-ai/kling-video/v3/standard/image-to-video";
-  const uploadedUrl = planRecord.draft.photoDataUrl.startsWith("http")
-    ? planRecord.draft.photoDataUrl
-    : await fal.storage.upload(
-        dataUrlToBlob(planRecord.draft.photoDataUrl, planRecord.draft.photoName)
-      );
+  const endpoint =
+    getServerEnv("FAL_VIDEO_MODEL") ||
+    "fal-ai/kling-video/v3/standard/image-to-video";
   const input = buildFalInput(
     endpoint,
     uploadedUrl,
@@ -58,8 +83,11 @@ export async function startVideoGenerationTool(
     prompt: input.prompt
   });
 
-  const result = await fal.queue.submit(endpoint, {
-    input
+  const submitStartedAt = Date.now();
+  const result = await fal.queue.submit(endpoint, { input });
+  logTimedTask("fal_submit", submitStartedAt, {
+    outcome: "queued",
+    providerRequestId: result.request_id
   });
 
   const langfuse = getLangfuse();
@@ -77,10 +105,49 @@ export async function startVideoGenerationTool(
   return {
     ...job,
     ...voiceOver,
+    musicBedUrl,
     providerRequestId: result.request_id,
     providerEndpoint: endpoint,
-    targetDurationSeconds: targetVideoDurationSeconds(planRecord.draft)
+    targetDurationSeconds
   };
+}
+
+async function uploadPhoto(planRecord: PlanRecord) {
+  if (planRecord.draft.photoDataUrl.startsWith("http")) {
+    return planRecord.draft.photoDataUrl;
+  }
+
+  return fal.storage.upload(
+    dataUrlToBlob(planRecord.draft.photoDataUrl, planRecord.draft.photoName)
+  );
+}
+
+async function uploadMusicBed(
+  planRecord: PlanRecord,
+  targetDurationSeconds: number
+) {
+  const buffer = await generateAiMusicBed(
+    planRecord.draft,
+    planRecord.plan,
+    targetDurationSeconds
+  );
+
+  if (!buffer || buffer.byteLength === 0) {
+    return undefined;
+  }
+
+  try {
+    const file = new File([new Uint8Array(buffer)], "birthday-music-bed.mp3", {
+      type: "audio/mpeg"
+    });
+    return await fal.storage.upload(file);
+  } catch (error) {
+    console.warn(
+      "[birthdaybot:start_video_generation] music bed upload failed",
+      error
+    );
+    return undefined;
+  }
 }
 
 function targetVideoDurationSeconds(draft: PlanRecord["draft"]) {
@@ -118,5 +185,16 @@ function logGenerationPayload({
     requestId,
     subjectCount,
     promptPreview: prompt.slice(0, 240)
+  });
+}
+
+function logTimedTask(
+  task: string,
+  startedAt: number,
+  metadata: Record<string, unknown>
+) {
+  console.info(`[birthdaybot:start_video_generation:${task}]`, {
+    durationMs: Date.now() - startedAt,
+    ...metadata
   });
 }

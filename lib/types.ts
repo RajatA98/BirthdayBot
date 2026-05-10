@@ -76,6 +76,7 @@ export type JobRecord = {
   attempts: number;
   videoUrl?: string;
   voiceOverUrl?: string;
+  musicBedUrl?: string;
   caption: string;
   error?: string;
   providerRequestId?: string;

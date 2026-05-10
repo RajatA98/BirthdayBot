@@ -1,8 +1,6 @@
 import { fal } from "@fal-ai/client";
 
-import { getPlan } from "@/lib/memory-store";
 import { getServerEnv } from "@/lib/server-env";
-import { generateAiMusicBed } from "@/lib/tools/generate-music-bed";
 import { muxVoiceOverIntoVideo } from "@/lib/tools/mux-voice-over";
 import { JobRecord, JobStage } from "@/lib/types";
 
@@ -163,20 +161,11 @@ async function resolveFinalVideoUrl(videoUrl: string, job: JobRecord) {
   }
 
   try {
-    const planRecord = getPlan(job.requestId);
-    const musicBedBytes = planRecord
-      ? await generateAiMusicBed(
-          planRecord.draft,
-          planRecord.plan,
-          job.targetDurationSeconds || 15
-        )
-      : undefined;
-
     const voicedVideoUrl = await muxVoiceOverIntoVideo(
       videoUrl,
       job.voiceOverUrl,
       job.targetDurationSeconds,
-      musicBedBytes
+      job.musicBedUrl
     );
 
     return {

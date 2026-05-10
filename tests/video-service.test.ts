@@ -181,10 +181,16 @@ describe("buildFalInput", () => {
 describe("startVideoGeneration voice-over", () => {
   const originalFalKey = process.env.FAL_KEY;
   const originalElevenLabsKey = process.env.ELEVENLABS_API_KEY;
+  const originalUseAiMusic = process.env.USE_AI_MUSIC;
+
+  beforeEach(() => {
+    process.env.USE_AI_MUSIC = "false";
+  });
 
   afterEach(() => {
     process.env.FAL_KEY = originalFalKey;
     process.env.ELEVENLABS_API_KEY = originalElevenLabsKey;
+    process.env.USE_AI_MUSIC = originalUseAiMusic;
     falClient.config.mockClear();
     falClient.upload.mockClear();
     falClient.submit.mockClear();
