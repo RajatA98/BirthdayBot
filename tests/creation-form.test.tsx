@@ -637,6 +637,7 @@ function makeApi(overrides: Partial<StudioApi> = {}): StudioApi {
         videoUrl: "https://example.com/video.mp4"
       })
     ),
+    suggestPrompt: vi.fn(async () => ({ suggestion: "Test suggestion." })),
     ...overrides
   };
 }

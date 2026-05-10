@@ -35,6 +35,15 @@ type Friend = {
   message: string;
   style: "sing-along" | "lip-sync" | "serenade" | "";
   delivery: "text" | "email" | "link";
+  accents?: string[];
+  accentsOther?: string;
+  vibe?: string;
+  vibeOther?: string;
+  setting?: string;
+  settingOther?: string;
+  musicGenre?: string;
+  musicGenreOther?: string;
+  promptSuggestion?: string;
 };
 
 type VoiceCloneState = {
@@ -805,6 +814,34 @@ function StepPhoto({ draft, update }: { draft: Friend; update: (patch: Partial<F
   );
 }
 
+const accentChips = [
+  "Cake & candles",
+  "Balloons",
+  "Fireworks",
+  "Confetti & sparklers"
+];
+const vibeChips = [
+  "Warm & heartfelt",
+  "Hype & energetic",
+  "Thankful & sentimental",
+  "Playful & funny"
+];
+const settingChips = [
+  "Rooftop golden hour",
+  "Beach sunset",
+  "Cozy indoor",
+  "Festive outdoor"
+];
+const musicChips = [
+  "Pop",
+  "Hip-hop",
+  "R&B",
+  "Rock",
+  "Country",
+  "Indie",
+  "Acoustic"
+];
+
 function StepPrompt({
   draft,
   update,
@@ -816,6 +853,42 @@ function StepPrompt({
   voiceClone: VoiceCloneState;
   onVoiceCloneReady: (clone: VoiceCloneState) => void;
 }) {
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState("");
+
+  async function loadSuggestion() {
+    if (!draft.photoDataUrl) {
+      setSuggestError("Upload a photo on the previous step first.");
+      return;
+    }
+    setSuggestLoading(true);
+    setSuggestError("");
+    try {
+      const result = await studioApi.suggestPrompt({
+        photoDataUrl: draft.photoDataUrl,
+        photoName: draft.photoName,
+        birthdayName: draft.firstName || draft.name
+      });
+      update({ promptSuggestion: result.suggestion });
+    } catch (error) {
+      setSuggestError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't draft a suggestion."
+      );
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
+
+  function toggleAccent(label: string) {
+    const current = draft.accents ?? [];
+    const next = current.includes(label)
+      ? current.filter((entry) => entry !== label)
+      : [...current, label];
+    update({ accents: next });
+  }
+
   return (
     <section className="bb-step-panel">
       <Heading
@@ -835,6 +908,71 @@ function StepPrompt({
           placeholder="Make it feel like a warm cinematic rooftop birthday at golden hour, with the two of us laughing about that time we missed the last train home."
         />
       </Field>
+      <div className="bb-suggest-row">
+        <button
+          className="bb-outline-button"
+          onClick={loadSuggestion}
+          disabled={suggestLoading || !draft.photoDataUrl}
+        >
+          <Icon name="sparkle" />
+          {suggestLoading ? "Drafting..." : "Suggest from your photo"}
+        </button>
+        {draft.promptSuggestion ? (
+          <div className="bb-suggest-pill">
+            <span>{draft.promptSuggestion}</span>
+            <button
+              className="bb-text-button"
+              onClick={() => update({ message: draft.promptSuggestion })}
+            >
+              Use this
+            </button>
+          </div>
+        ) : null}
+        {suggestError ? <p className="bb-field-error">{suggestError}</p> : null}
+      </div>
+      <ChipRow
+        label="Accents"
+        hint="Stack as many as you like."
+        chips={accentChips}
+        selected={draft.accents ?? []}
+        otherValue={draft.accentsOther || ""}
+        onToggle={toggleAccent}
+        onOtherChange={(value) => update({ accentsOther: value })}
+        multi
+      />
+      <ChipRow
+        label="Vibe"
+        hint="Pick the emotional tone."
+        chips={vibeChips}
+        selected={draft.vibe ? [draft.vibe] : []}
+        otherValue={draft.vibeOther || ""}
+        onToggle={(label) =>
+          update({ vibe: draft.vibe === label ? "" : label })
+        }
+        onOtherChange={(value) => update({ vibeOther: value })}
+      />
+      <ChipRow
+        label="Setting"
+        hint="Optional — anchors the location."
+        chips={settingChips}
+        selected={draft.setting ? [draft.setting] : []}
+        otherValue={draft.settingOther || ""}
+        onToggle={(label) =>
+          update({ setting: draft.setting === label ? "" : label })
+        }
+        onOtherChange={(value) => update({ settingOther: value })}
+      />
+      <ChipRow
+        label="Music"
+        hint="Optional — colors the soundtrack vibe."
+        chips={musicChips}
+        selected={draft.musicGenre ? [draft.musicGenre] : []}
+        otherValue={draft.musicGenreOther || ""}
+        onToggle={(label) =>
+          update({ musicGenre: draft.musicGenre === label ? "" : label })
+        }
+        onOtherChange={(value) => update({ musicGenreOther: value })}
+      />
       <div className="bb-voice-block">
         {voiceClone.ready ? (
           <section className="bb-voice-ready-card">
@@ -857,6 +995,75 @@ function StepPrompt({
         )}
       </div>
     </section>
+  );
+}
+
+function ChipRow({
+  label,
+  hint,
+  chips,
+  selected,
+  otherValue,
+  onToggle,
+  onOtherChange,
+  multi = false
+}: {
+  label: string;
+  hint?: string;
+  chips: string[];
+  selected: string[];
+  otherValue: string;
+  onToggle: (label: string) => void;
+  onOtherChange: (value: string) => void;
+  multi?: boolean;
+}) {
+  const [otherOpen, setOtherOpen] = useState(Boolean(otherValue));
+  return (
+    <div className="bb-chip-row">
+      <header>
+        <strong>{label}</strong>
+        {hint ? <small>{hint}</small> : null}
+      </header>
+      <div className="bb-chip-list">
+        {chips.map((chip) => (
+          <button
+            key={chip}
+            type="button"
+            className={`bb-chip ${selected.includes(chip) ? "is-selected" : ""}`}
+            onClick={() => onToggle(chip)}
+          >
+            {chip}
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`bb-chip ${otherOpen || otherValue ? "is-selected" : ""}`}
+          onClick={() => {
+            if (otherOpen && otherValue) {
+              onOtherChange("");
+            }
+            setOtherOpen((open) => !open);
+          }}
+          aria-pressed={otherOpen}
+        >
+          Other…
+        </button>
+      </div>
+      {otherOpen ? (
+        <input
+          type="text"
+          className="bb-chip-other"
+          maxLength={80}
+          placeholder={
+            multi
+              ? `Add your own ${label.toLowerCase()} — comma-separate for many.`
+              : `Describe your own ${label.toLowerCase()}.`
+          }
+          value={otherValue}
+          onChange={(event) => onOtherChange(event.target.value)}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -1631,10 +1838,14 @@ function blankFriend(): Friend {
 
 function buildSimpleDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
   const name = friend.firstName || firstName(friend.name) || friend.name;
+  const userPrompt = friend.message?.trim() || `Make a warm birthday video for ${name || "my friend"}.`;
+  const directives = buildPromptDirectives(friend);
+  const prompt = directives ? `${userPrompt}\n\n${directives}` : userPrompt;
+
   return {
     mode: "simple",
     birthdayName: name,
-    prompt: friend.message?.trim() || `Make a warm birthday video for ${name || "my friend"}.`,
+    prompt,
     photoName: friend.photoName || `${name || "birthday"}-photo.png`,
     photoDataUrl: friend.photoDataUrl || "",
     voiceSampleName: voiceClone.voiceSampleName,
@@ -1645,6 +1856,38 @@ function buildSimpleDraftRequest(friend: Friend, voiceClone: VoiceCloneState): D
     voiceMode: "narrate",
     advanced: defaultAdvancedSettings
   };
+}
+
+function buildPromptDirectives(friend: Friend): string {
+  const parts: string[] = [];
+
+  const accentList = [
+    ...(friend.accents ?? []),
+    ...((friend.accentsOther || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean))
+  ];
+  if (accentList.length > 0) {
+    parts.push(`Accents: ${accentList.join(", ")}.`);
+  }
+
+  const vibe = (friend.vibeOther || friend.vibe || "").trim();
+  if (vibe) {
+    parts.push(`Vibe: ${vibe}.`);
+  }
+
+  const setting = (friend.settingOther || friend.setting || "").trim();
+  if (setting) {
+    parts.push(`Setting: ${setting}.`);
+  }
+
+  const music = (friend.musicGenreOther || friend.musicGenre || "").trim();
+  if (music) {
+    parts.push(`Music: ${music}.`);
+  }
+
+  return parts.join(" ");
 }
 
 function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {

@@ -4,6 +4,7 @@ import { JobCheckRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { resolveJobStatus, startVideoGeneration } from "@/lib/video-service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
