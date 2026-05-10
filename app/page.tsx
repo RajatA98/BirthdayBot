@@ -403,11 +403,11 @@ function HeroPreview({ friend, onOpen, onEdit }: { friend: Friend; onOpen: () =>
       <div className="bb-hero-copy">
         <p className="bb-kicker"><i /> Up next * Sunday, May 10</p>
         <h1>
-          Cecilia&apos;s about to get the <mark>cutest thing</mark> in her inbox.
+          Never miss a birthday again. <mark>Relive your favorite memories.</mark>
         </h1>
         <p>
-          Her postcard is sealed and queued for <strong>Thursday at 9 AM</strong>. Hit play to see exactly what
-          she&apos;ll get, or sneak in one more inside joke.
+          BirthdayBot automatically sends every contact a personalized video on their birthday.{" "}
+          <strong>One photo, one voice sample</strong> &mdash; and your favorite moments come back to life.
         </p>
         <div className="bb-hero-actions">
           <button className="bb-sticker-button" onClick={onOpen}><Icon name="play" /> Play the postcard</button>
@@ -1385,6 +1385,15 @@ function StepPreview({
             >
               <Icon name="play" /> {isGenerating ? "Generating..." : generation.videoUrl ? "Generate again" : "Generate birthday video"}
             </button>
+            {generation.videoUrl ? (
+              <a
+                className="bb-outline-button"
+                href={`/api/download?url=${encodeURIComponent(generation.videoUrl)}&name=${encodeURIComponent(`birthday-${draft.firstName || draft.name || "video"}.mp4`)}`}
+                download
+              >
+                <Icon name="download" /> Download video
+              </a>
+            ) : null}
           </section>
           {draft.delivery === "email" ? (
             <EmailSendCard
@@ -1507,7 +1516,7 @@ function EmailSendCard({
       <strong>Send to inbox</strong>
       <small>
         We&apos;ll deliver the muxed video as an inline player plus a
-        watch-link fallback. Powered by Resend.
+        download link fallback. Powered by Resend.
       </small>
       <input
         type="email"
@@ -1989,6 +1998,7 @@ type IconName =
   | "calendar"
   | "check"
   | "clock"
+  | "download"
   | "edit"
   | "list"
   | "message"
@@ -2009,6 +2019,7 @@ function Icon({ name }: { name: IconName }) {
     calendar: ["M3 6h18v15H3z", "M8 3v4", "M16 3v4", "M3 10h18"],
     check: ["M20 6L9 17l-5-5"],
     clock: ["M12 7v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"],
+    download: ["M12 3v12", "M7 10l5 5 5-5", "M4 19h16"],
     edit: ["M11 4H4v16h16v-7", "M18 2l4 4-9 9H9v-4z"],
     list: ["M3 7h18", "M3 12h12", "M3 17h18"],
     message: ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"],

@@ -2,6 +2,7 @@ import { EmailSendRequest } from "@/lib/types";
 
 export function buildBirthdayEmailText(input: EmailSendRequest, birthdayName: string) {
   const videoUrl = input.videoUrl?.trim();
+  const downloadUrl = input.downloadUrl?.trim() || videoUrl;
 
   return [
     `Happy birthday, ${birthdayName}!`,
@@ -12,7 +13,7 @@ export function buildBirthdayEmailText(input: EmailSendRequest, birthdayName: st
       ? [
           "",
           "Your birthday video is included in the email.",
-          `If it does not play in your inbox, open it here: ${videoUrl}`
+          `If it does not play in your inbox, download it here: ${downloadUrl}`
         ].join("\n")
       : ""
   ]
@@ -26,7 +27,7 @@ export function buildBirthdayEmailHtml(input: EmailSendRequest, birthdayName: st
   const escapedCaption = input.caption?.trim()
     ? `<p style="margin:18px 0 0;color:#53334d;font-size:15px;line-height:1.6;">${escapeHtml(input.caption).replace(/\n/g, "<br />")}</p>`
     : "";
-  const videoBlock = buildVideoBlock(input.videoUrl);
+  const videoBlock = buildVideoBlock(input.videoUrl, input.downloadUrl);
 
   return `<!doctype html>
 <html>
@@ -91,7 +92,7 @@ export function buildBirthdayEmailHtml(input: EmailSendRequest, birthdayName: st
 </html>`;
 }
 
-function buildVideoBlock(videoUrl: string | undefined) {
+function buildVideoBlock(videoUrl: string | undefined, downloadUrl: string | undefined) {
   const trimmedVideoUrl = videoUrl?.trim();
 
   if (!trimmedVideoUrl) {
@@ -99,18 +100,19 @@ function buildVideoBlock(videoUrl: string | undefined) {
   }
 
   const escapedVideoUrl = escapeAttribute(trimmedVideoUrl);
+  const escapedDownloadUrl = escapeAttribute(downloadUrl?.trim() || trimmedVideoUrl);
 
   return `
         <div class="bb-video-wrap" style="position:relative;margin:26px 0 0;background:#221428;border:9px solid #221428;border-radius:24px;overflow:hidden;box-shadow:6px 6px 0 #ffcf47;">
           <video controls playsinline preload="metadata" src="${escapedVideoUrl}" style="display:block;width:100%;max-width:100%;height:auto;background:#221428;">
-            <a href="${escapedVideoUrl}" style="color:#fff;text-decoration:underline;">Play the birthday video</a>
+            <a href="${escapedDownloadUrl}" style="color:#fff;text-decoration:underline;">Download the birthday video</a>
           </video>
         </div>
         <p style="position:relative;margin:14px 0 0;text-align:center;">
-          <a href="${escapedVideoUrl}" style="display:inline-block;background:#221428;color:#fff;text-decoration:none;border-radius:999px;padding:13px 20px;font-size:15px;font-weight:900;box-shadow:4px 4px 0 #ff5c8a;animation:bb-pop 1.8s ease-in-out infinite;">Play the birthday video</a>
+          <a href="${escapedDownloadUrl}" style="display:inline-block;background:#221428;color:#fff;text-decoration:none;border-radius:999px;padding:13px 20px;font-size:15px;font-weight:900;box-shadow:4px 4px 0 #ff5c8a;animation:bb-pop 1.8s ease-in-out infinite;">Download the birthday video</a>
         </p>
         <p style="position:relative;margin:12px 0 0;text-align:center;color:#6d536b;font-size:13px;">
-          If your inbox blocks inline video, this button opens the same video in your browser.
+          If your inbox blocks inline video, this button downloads the same video to your device.
         </p>`;
 }
 

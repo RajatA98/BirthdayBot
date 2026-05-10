@@ -51,6 +51,9 @@ export async function POST(request: Request) {
       );
     }
 
+    const downloadUrl = buildDownloadUrl(request, videoUrl, birthdayName);
+    const enriched = { ...input, downloadUrl };
+
     const response = await fetch(resendEndpoint, {
       method: "POST",
       headers: {
@@ -61,8 +64,8 @@ export async function POST(request: Request) {
         from,
         to,
         subject: `Happy birthday, ${birthdayName}`,
-        text: buildBirthdayEmailText(input, birthdayName),
-        html: buildBirthdayEmailHtml(input, birthdayName)
+        text: buildBirthdayEmailText(enriched, birthdayName),
+        html: buildBirthdayEmailHtml(enriched, birthdayName)
       })
     });
 
@@ -93,4 +96,42 @@ export async function POST(request: Request) {
 
 function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function buildDownloadUrl(
+  request: Request,
+  videoUrl: string | undefined,
+  birthdayName: string
+): string | undefined {
+  if (!videoUrl) return undefined;
+
+  const base = resolveBaseUrl(request);
+  if (!base) return videoUrl;
+
+  const safeName = birthdayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "video";
+
+  return `${base}/api/download?url=${encodeURIComponent(videoUrl)}&name=${encodeURIComponent(`birthday-${safeName}.mp4`)}`;
+}
+
+function resolveBaseUrl(request: Request): string | undefined {
+  const explicit = getServerEnv("BIRTHDAYBOT_PUBLIC_URL");
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  const origin = request.headers.get("origin");
+  if (origin) return origin.replace(/\/+$/, "");
+
+  const host = request.headers.get("host");
+  if (host) {
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    return `${proto}://${host}`.replace(/\/+$/, "");
+  }
+
+  const vercelUrl = getServerEnv("VERCEL_URL");
+  if (vercelUrl) return `https://${vercelUrl}`.replace(/\/+$/, "");
+
+  return undefined;
 }

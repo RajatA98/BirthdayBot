@@ -130,6 +130,7 @@ export type EmailSendRequest = {
   message: string;
   videoUrl?: string;
   caption?: string;
+  downloadUrl?: string;
 };
 
 export type EmailSendResponse = {
