@@ -148,7 +148,7 @@ describe("buildFalInput", () => {
     expect(input.negative_prompt).toContain("watermark");
   });
 
-  it("enables native audio for newer endpoints that support it", () => {
+  it("never asks fal for native audio (ElevenLabs always carries the voice)", () => {
     const input = buildFalInput(
       "fal-ai/kling-video/v3/standard/image-to-video",
       "https://example.com/photo.png",
@@ -168,9 +168,11 @@ describe("buildFalInput", () => {
     expect(input).toMatchObject({
       start_image_url: "https://example.com/photo.png",
       duration: "15",
-      aspect_ratio: "16:9",
-      generate_audio: true
+      aspect_ratio: "16:9"
     });
+    // Even on endpoints that support native audio, we keep the fal MP4 silent
+    // so it can never leak gibberish through if mux fails.
+    expect(input).not.toHaveProperty("generate_audio");
     expect(input).not.toHaveProperty("image_url");
   });
 
