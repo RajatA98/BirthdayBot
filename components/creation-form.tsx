@@ -76,6 +76,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [voiceSampleName, setVoiceSampleName] = useState("");
   const [voiceSampleDataUrl, setVoiceSampleDataUrl] = useState("");
   const [voiceSampleClipsData, setVoiceSampleClipsData] = useState<string[]>([]);
+  const [voiceQualityWarning, setVoiceQualityWarning] = useState("");
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -229,6 +230,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       setVoiceSampleName("");
       setVoiceSampleDataUrl("");
       setVoiceSampleClipsData([]);
+      setVoiceQualityWarning("");
       setVoiceSampleSource("");
       setVoiceConsent(false);
       setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -243,6 +245,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       setVoiceSampleName("");
       setVoiceSampleDataUrl("");
       setVoiceSampleClipsData([]);
+      setVoiceQualityWarning("");
       setVoiceSampleSource("");
       setVoiceConsent(false);
       setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -260,6 +263,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setVoiceSampleSource("uploaded");
     setVoiceConsent(false);
     setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
+    if (nextFile.type.startsWith("audio/")) {
+      analyzeAudioBlobQuality(nextFile).then((quality) => {
+        setVoiceQualityWarning(quality?.warning || "");
+      });
+    } else {
+      setVoiceQualityWarning("");
+    }
     setActiveVoicePromptIndex(0);
     setRecordingError("");
     setErrors((current) => ({
@@ -375,6 +385,9 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           setVoiceSampleClipsData(clipsData);
           setVoiceSampleSource("recorded");
           setVoiceConsent(false);
+          analyzeAudioBlobQuality(combinedRecording).then((quality) => {
+            setVoiceQualityWarning(quality?.warning || "");
+          });
           setErrors((current) => ({
             ...current,
             voiceSample: undefined,
@@ -405,6 +418,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setVoiceSampleName("");
     setVoiceSampleDataUrl("");
     setVoiceSampleClipsData([]);
+    setVoiceQualityWarning("");
     setVoiceSampleSource("");
     setVoiceConsent(false);
     setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -558,6 +572,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setVoiceSampleName("");
     setVoiceSampleDataUrl("");
     setVoiceSampleClipsData([]);
+    setVoiceQualityWarning("");
     setVoiceConsent(false);
     setRecordingState("idle");
     setRecordingSeconds(0);
@@ -1011,6 +1026,11 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
               <button className="ghost-action" type="button" onClick={clearVoiceSample}>
                 Remove voice sample
               </button>
+              {voiceQualityWarning ? (
+                <p className="voice-quality-tip" role="status">
+                  {voiceQualityWarning}
+                </p>
+              ) : null}
             </section>
 
             <label className="toggle-row voice-consent">
@@ -1433,6 +1453,90 @@ async function combineRecordedClips(clips: Array<Blob | null>, mimeType: string)
   } finally {
     await audioContext.close().catch(() => undefined);
   }
+}
+
+type VoiceQualityResult = {
+  rms: number;
+  peak: number;
+  noiseFloor: number;
+  snrDb: number;
+  warning?: string;
+};
+
+async function analyzeAudioBlobQuality(
+  blob: Blob
+): Promise<VoiceQualityResult | null> {
+  const AudioContextCtor =
+    typeof window !== "undefined"
+      ? window.AudioContext ||
+        (window as typeof window & {
+          webkitAudioContext?: typeof AudioContext;
+        }).webkitAudioContext
+      : undefined;
+
+  if (!AudioContextCtor) return null;
+
+  const audioContext = new AudioContextCtor();
+
+  try {
+    const bytes = await blob.arrayBuffer();
+    const buffer = await audioContext.decodeAudioData(bytes.slice(0));
+    return analyzeAudioBuffer(buffer);
+  } catch {
+    return null;
+  } finally {
+    await audioContext.close().catch(() => undefined);
+  }
+}
+
+function analyzeAudioBuffer(buffer: AudioBuffer): VoiceQualityResult {
+  const data = buffer.getChannelData(0);
+  const sampleRate = buffer.sampleRate;
+  const frameSize = Math.max(1, Math.floor(sampleRate * 0.05));
+  const frameRms: number[] = [];
+  let peak = 0;
+  let totalSquared = 0;
+  let totalCount = 0;
+
+  for (let start = 0; start < data.length; start += frameSize) {
+    const end = Math.min(start + frameSize, data.length);
+    let sumSquared = 0;
+    for (let i = start; i < end; i += 1) {
+      const sample = data[i] ?? 0;
+      const abs = Math.abs(sample);
+      if (abs > peak) peak = abs;
+      sumSquared += sample * sample;
+    }
+    const count = end - start;
+    if (count > 0) {
+      frameRms.push(Math.sqrt(sumSquared / count));
+      totalSquared += sumSquared;
+      totalCount += count;
+    }
+  }
+
+  const rms = totalCount > 0 ? Math.sqrt(totalSquared / totalCount) : 0;
+  const sorted = [...frameRms].sort((a, b) => a - b);
+  const noiseFloor =
+    sorted[Math.max(0, Math.floor(sorted.length * 0.1))] || 1e-5;
+  const signalPeak =
+    sorted[Math.max(0, Math.floor(sorted.length * 0.9))] || rms || 1e-4;
+  const snrDb = 20 * Math.log10(Math.max(signalPeak, 1e-6) / Math.max(noiseFloor, 1e-6));
+
+  let warning: string | undefined;
+
+  if (rms < 0.01) {
+    warning =
+      "The recording sounds very quiet. Move closer to the mic and re-record for a stronger clone.";
+  } else if (peak >= 0.99) {
+    warning =
+      "The recording is clipping. Move slightly farther from the mic to avoid distortion in the clone.";
+  } else if (snrDb < 18) {
+    warning =
+      "There is noticeable background noise. A quieter room will give ElevenLabs a stronger clone.";
+  }
+
+  return { rms, peak, noiseFloor, snrDb, warning };
 }
 
 function encodeWavBlob(buffer: AudioBuffer) {
