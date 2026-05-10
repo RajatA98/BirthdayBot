@@ -2,6 +2,8 @@
 
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { CreationForm } from "@/components/creation-form";
+
 import { studioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
 import { AgentPlan, DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
@@ -207,12 +209,7 @@ export default function Home() {
       <section className="bb-stage">
         {view.name === "dashboard" ? <Dashboard setView={setView} /> : null}
         {view.name === "wizard" ? (
-          <Wizard
-            view={view}
-            setView={setView}
-            voiceClone={voiceClone}
-            onVoiceCloneReady={setVoiceClone}
-          />
+          <FullCreationView setView={setView} />
         ) : null}
         {view.name === "detail" ? <DetailView id={view.id} setView={setView} /> : null}
         {view.name === "drafts" ? (
@@ -228,6 +225,26 @@ export default function Home() {
         {view.name === "settings" ? <SettingsView voiceClone={voiceClone} /> : null}
       </section>
     </main>
+  );
+}
+
+function FullCreationView({ setView }: { setView: (view: View) => void }) {
+  return (
+    <div className="bb-scroll-view">
+      <div className="bb-creation-shell">
+        <header className="bb-creation-header">
+          <button
+            type="button"
+            className="bb-text-button"
+            onClick={() => setView({ name: "dashboard" })}
+          >
+            ← Back to dashboard
+          </button>
+          <p className="bb-creation-eyebrow">New birthday video</p>
+        </header>
+        <CreationForm />
+      </div>
+    </div>
   );
 }
 
