@@ -146,7 +146,7 @@ describe("CreationForm", () => {
     , { timeout: 2500 });
     expect(screen.getByRole("link", { name: "Download video" })).toHaveAttribute(
       "href",
-      "https://example.com/video.mp4"
+      "/api/download/job_123"
     );
   });
 
