@@ -48,6 +48,9 @@ describe("CreationForm", () => {
       screen.getByText("Describe what the birthday video should feel like.")
     ).toBeInTheDocument();
     expect(
+      screen.getByText("Add their name for the birthday text.")
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("Add one shared photo to continue.")
     ).toBeInTheDocument();
   });
@@ -199,8 +202,9 @@ describe("CreationForm", () => {
     );
 
     expect(
-      screen.getByText(/I wanted to make this feel a little more personal/)
+      screen.getByText(/I wanted this to feel more personal/)
     ).toBeInTheDocument();
+    expect(screen.getByText("Aim for about 30 seconds in a quiet room.")).toBeInTheDocument();
 
     await waitFor(() =>
       expect(
@@ -312,6 +316,7 @@ describe("CreationForm", () => {
       expect.objectContaining({
         requestId: "req_123",
         draft: expect.objectContaining({
+          birthdayName: "Maya",
           prompt: "Make it feel like a funny rooftop birthday movie trailer.",
           photoName: "birthday-duo.png"
         }),
@@ -323,11 +328,15 @@ describe("CreationForm", () => {
       })
     );
     expect(screen.getByText("Generation in progress")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Birthday video loading animation" })
+    ).toBeInTheDocument();
 
     await waitFor(() =>
       expect(screen.getByText("Birthday package ready")).toBeInTheDocument()
     , { timeout: 2500 });
-    expect(screen.getByText("Caption one. Caption two. Caption three.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Happy Birthday Maya")).toBeInTheDocument();
+    expect(screen.queryByText(/Caption one/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Caption four/)).not.toBeInTheDocument();
     expect(screen.queryByText("Birthday caption")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download video" })).toHaveAttribute(
@@ -425,6 +434,7 @@ class MockMediaRecorder {
 }
 
 async function fillValidDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText("Birthday name"), "Maya");
   await user.type(
     screen.getByLabelText("Prompt"),
     "Make it feel like a funny rooftop birthday movie trailer."
@@ -466,19 +476,6 @@ function makeApi(overrides: Partial<StudioApi> = {}): StudioApi {
       createdAt: Date.now(),
       videoUrl: "https://example.com/video.mp4"
     }) satisfies JobRecord),
-    listBirthdayProfiles: vi.fn(async () => ({
-      profiles: [],
-      deliveries: []
-    })),
-    createBirthdayProfile: vi.fn(async () => ({
-      profiles: [],
-      deliveries: []
-    })),
-    runBirthdayAutomation: vi.fn(async () => ({
-      date: "2026-05-09",
-      generated: [],
-      skipped: []
-    })),
     ...overrides
   };
 }

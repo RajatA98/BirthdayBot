@@ -66,6 +66,7 @@ export async function generatePlanAndCaption(input: DraftRequest) {
     "Return a concise cinematic generation plan.",
     "Keep the people recognizable.",
     `Mode: ${input.mode}`,
+    `Birthday name: ${input.birthdayName || "Not provided"}`,
     `User prompt: ${input.prompt}`,
     `Advanced settings: ${JSON.stringify(input.advanced)}`
   ].join("\n");
@@ -99,7 +100,7 @@ export async function generatePlanAndCaption(input: DraftRequest) {
     }
   });
 
-  const captionPrompt = `Write a short, personal birthday caption that matches this plan: ${JSON.stringify(plan)}. Keep it heartfelt, sendable, and natural.`;
+  const captionPrompt = `Write a polished birthday voice-over script for ${input.birthdayName || "the birthday person"} that matches this plan: ${JSON.stringify(plan)}. Make it warm, specific, sendable, and natural. Target about 30 seconds when read aloud, roughly 65-85 words. Return only the script text.`;
   const captionGen = trace?.generation({
     name: "caption",
     model: captionModel,

@@ -13,6 +13,7 @@ export type AdvancedSettings = {
 
 export type DraftRequest = {
   mode: Mode;
+  birthdayName?: string;
   prompt: string;
   photoName: string;
   photoDataUrl: string;
@@ -65,6 +66,7 @@ export type JobRecord = {
   providerRequestId?: string;
   providerEndpoint?: string;
   providerVoiceId?: string;
+  targetDurationSeconds?: number;
   voiceOverError?: string;
   createdAt: number;
 };
@@ -84,64 +86,4 @@ export type GenerateRequest = {
   draft?: DraftRequest;
   plan?: AgentPlan;
   caption?: string;
-};
-
-export type BirthdayProfile = {
-  id: string;
-  name: string;
-  relationship: string;
-  birthday: string;
-  customPrompt: string;
-  deliveryEmail: string;
-  photoName: string;
-  photoDataUrl: string;
-  autoSend: boolean;
-  lastGeneratedYear?: number;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type BirthdayProfileInput = {
-  name: string;
-  relationship: string;
-  birthday: string;
-  customPrompt: string;
-  deliveryEmail: string;
-  photoName: string;
-  photoDataUrl: string;
-  autoSend: boolean;
-};
-
-export type BirthdayDeliveryStatus =
-  | "queued"
-  | "generating"
-  | "ready"
-  | "failed";
-
-export type BirthdayDelivery = {
-  id: string;
-  profileId: string;
-  profileName: string;
-  scheduledFor: string;
-  deliveryEmail: string;
-  requestId?: string;
-  jobId?: string;
-  status: BirthdayDeliveryStatus;
-  error?: string;
-  createdAt: number;
-};
-
-export type BirthdayProfilesResponse = {
-  profiles: BirthdayProfile[];
-  deliveries: BirthdayDelivery[];
-};
-
-export type BirthdayRunResponse = {
-  date: string;
-  generated: BirthdayDelivery[];
-  skipped: Array<{
-    profileId: string;
-    profileName: string;
-    reason: string;
-  }>;
 };

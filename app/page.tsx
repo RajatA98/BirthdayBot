@@ -1,4 +1,3 @@
-import { BirthdayScheduler } from "@/components/birthday-scheduler";
 import { CreationForm } from "@/components/creation-form";
 
 export default function Home() {
@@ -12,7 +11,6 @@ export default function Home() {
           cinematic birthday moment.
         </p>
         <CreationForm />
-        <BirthdayScheduler />
       </section>
     </main>
   );

@@ -25,6 +25,11 @@ const providerTimeoutMs = 6 * 60 * 1000;
 const defaultFalVideoModel = "fal-ai/kling-video/v3/standard/image-to-video";
 const elevenLabsBaseUrl = "https://api.elevenlabs.io/v1";
 const defaultElevenLabsTtsModel = "eleven_multilingual_v2";
+const falMaxUploadBytes = 10_485_760;
+const falTargetImageUploadBytes = 9_500_000;
+const maxMuxedVideoDurationSeconds = 10;
+const finalVideoAudioBitrateKbps = 96;
+const finalVideoBitrateKbps = 4500;
 const execFileAsync = promisify(execFile);
 
 export async function startVideoGeneration(planRecord: PlanRecord, job: JobRecord) {
@@ -56,7 +61,10 @@ export async function startVideoGeneration(planRecord: PlanRecord, job: JobRecor
   const uploadedUrl = planRecord.draft.photoDataUrl.startsWith("http")
     ? planRecord.draft.photoDataUrl
     : await fal.storage.upload(
-        dataUrlToBlob(planRecord.draft.photoDataUrl, planRecord.draft.photoName)
+        await providerReadyImageFile(
+          planRecord.draft.photoDataUrl,
+          planRecord.draft.photoName
+        )
       );
   const endpoint = selectVideoEndpoint();
   const input = buildFalInput(
@@ -64,15 +72,17 @@ export async function startVideoGeneration(planRecord: PlanRecord, job: JobRecor
     uploadedUrl,
     videoDraft,
     planRecord.plan,
-    planRecord.caption
+    planRecord.caption,
+    { safeRetry: job.attempts > 1 }
   );
-  const result = await fal.queue.submit(endpoint, { input });
+  const submission = await submitFalVideoJob(endpoint, input);
+  const result = submission.result;
 
   const langfuse = getLangfuse();
   const trace = langfuse?.trace({
     name: "video-generation",
-    input: { endpoint, prompt: input.prompt, jobId: job.jobId },
-    metadata: { requestId: job.requestId }
+    input: { endpoint, prompt: submission.input.prompt, jobId: job.jobId },
+    metadata: { requestId: job.requestId, usedSchemaFallback: submission.usedSchemaFallback }
   });
   trace?.event({ name: "fal-submitted", input: { requestId: result.request_id, endpoint } });
   await langfuse?.flushAsync();
@@ -81,7 +91,8 @@ export async function startVideoGeneration(planRecord: PlanRecord, job: JobRecor
     ...job,
     ...voiceOver,
     providerRequestId: result.request_id,
-    providerEndpoint: endpoint
+    providerEndpoint: endpoint,
+    targetDurationSeconds: targetVideoDurationSeconds(planRecord.draft)
   };
 }
 
@@ -121,17 +132,29 @@ export async function resolveJobStatus(job: JobRecord) {
       credentials: apiKey
     });
 
-    const status = await fal.queue.status(job.providerEndpoint, {
-      requestId: job.providerRequestId,
-      logs: true
-    });
+    let status: Awaited<ReturnType<typeof fal.queue.status>>;
+
+    try {
+      status = await fal.queue.status(job.providerEndpoint, {
+        requestId: job.providerRequestId,
+        logs: true
+      });
+    } catch (error) {
+      return providerPollingFailure(error, "Provider status lookup failed.");
+    }
 
     const state = status.status;
 
     if (state === "COMPLETED") {
-      const result = await fal.queue.result(job.providerEndpoint, {
-        requestId: job.providerRequestId
-      });
+      let result: Awaited<ReturnType<typeof fal.queue.result>>;
+
+      try {
+        result = await fal.queue.result(job.providerEndpoint, {
+          requestId: job.providerRequestId
+        });
+      } catch (error) {
+        return providerPollingFailure(error, "Provider result lookup failed.");
+      }
       const videoUrl = extractVideoUrl(result.data);
 
       if (!videoUrl) {
@@ -211,7 +234,11 @@ function inferProviderStage(logs?: Array<{ message?: string }>) {
 }
 
 type FalVideoInput = {
-  prompt: string;
+  prompt?: string;
+  multi_prompt?: Array<{
+    prompt: string;
+    duration: string;
+  }>;
   image_url?: string;
   start_image_url?: string;
   duration?: string;
@@ -219,6 +246,7 @@ type FalVideoInput = {
   negative_prompt?: string;
   cfg_scale?: number;
   generate_audio?: boolean;
+  shot_type?: "customize";
 };
 
 export function buildFalInput(
@@ -226,29 +254,77 @@ export function buildFalInput(
   imageUrl: string,
   draft: DraftRequest,
   plan: PlanRecord["plan"],
-  caption: string
+  caption: string,
+  options: { safeRetry?: boolean } = {}
 ): FalVideoInput {
+  const prompt = compactProviderPrompt(
+    options.safeRetry
+      ? buildSafeRetryFalPrompt(draft, plan)
+      : buildFalPrompt(draft, plan, caption),
+    maxProviderPromptCharacters(endpoint)
+  );
   const input: FalVideoInput = supportsStartImageUrl(endpoint)
     ? {
         start_image_url: imageUrl,
-        prompt: buildFalPrompt(draft, plan, caption)
+        prompt
       }
     : {
         image_url: imageUrl,
-        prompt: buildFalPrompt(draft, plan, caption)
+        prompt
       };
 
-  input.duration = durationForEndpoint(endpoint, draft);
-  input.aspect_ratio = aspectRatioForDraft(draft);
-  input.negative_prompt =
-    "blur, distort, low quality, watermark, misspelled text, broken letters, garbled caption, distorted hands, extra faces, changed identity";
-  input.cfg_scale = 0.65;
+  const targetDuration = targetVideoDurationSeconds(draft);
+  const providerMax = maxProviderDurationForEndpoint(endpoint);
 
-  if (supportsNativeAudio(endpoint) && !hasVoiceSample(draft)) {
-    input.generate_audio = true;
+  input.duration = String(Math.min(targetDuration, providerMax));
+
+  if (options.safeRetry) {
+    input.duration = "5";
+
+    if (supportsNativeAudio(endpoint)) {
+      input.generate_audio = false;
+    }
+
+    return input;
+  }
+
+  if (supportsNegativePrompt(endpoint)) {
+    input.negative_prompt =
+      "blur, distort, low quality, watermark, misspelled text, broken letters, garbled caption, distorted hands, extra faces, changed identity";
+  }
+
+  if (supportsCfgScale(endpoint)) {
+    input.cfg_scale = 0.65;
+  }
+
+  if (supportsAspectRatio(endpoint)) {
+    input.aspect_ratio = aspectRatioForDraft(draft);
+  }
+
+  if (supportsNativeAudio(endpoint)) {
+    input.generate_audio = !hasVoiceSample(draft);
   }
 
   return input;
+}
+
+function buildSafeRetryFalPrompt(draft: DraftRequest, plan: PlanRecord["plan"]) {
+  const birthdayName = draft.birthdayName?.trim();
+  const nameDirection = birthdayName
+    ? `Make the mood feel like a birthday celebration for ${providerSafeText(birthdayName)}.`
+    : "Make the mood feel like a warm birthday celebration.";
+
+  return providerSafeText(
+    [
+      "Create a cheerful birthday party video from the uploaded photo.",
+      nameDirection,
+      "Preserve the main people naturally and keep faces, clothing, and identity cues close to the source photo.",
+      "Add balloons, confetti, cake candles, wrapped gifts, warm party lights, and a gentle camera push-in.",
+      `Use this simple visual concept: ${providerSafeText(plan.concept)}`,
+      "Keep the scene wholesome, realistic, and artifact-free.",
+      "Do not add captions, subtitles, logos, labels, or watermarks."
+    ].join(" ")
+  );
 }
 
 export function buildFalPrompt(
@@ -256,6 +332,7 @@ export function buildFalPrompt(
   plan: PlanRecord["plan"],
   caption = ""
 ) {
+  const userDirection = providerSafeUserPrompt(draft.prompt);
   const advancedDirection =
     draft.mode === "advanced"
       ? [
@@ -269,23 +346,68 @@ export function buildFalPrompt(
       : "Use a warm, sendable birthday-video style.";
   const textDirection = buildTextDirection(draft, caption);
   const musicDirection = buildMusicDirection(draft);
+  const partyDirection =
+    "Transform the scene into a lively birthday party backdrop: decorate it with colorful balloons, streamers, confetti bursts, cake candles, wrapped gifts, warm party lights, guests cheering in the background, and a joyful surprise reveal.";
 
-  return [
-    "Create a short cinematic birthday celebration video from the uploaded photo.",
-    `User video prompt: ${draft.prompt}`,
-    "Treat the user video prompt as the main creative direction for the generated video.",
+  const prompt = [
+    "Create a short cinematic birthday party video and birthday celebration from the uploaded photo.",
+    partyDirection,
+    "The final video should read as a clear party scene first, not a generic cinematic portrait or plain photo animation.",
+    `User visual direction: ${userDirection}`,
+    "Treat the user visual direction as the main creative direction for the generated video.",
+    "Make it really fun and energetic, with playful reactions, celebratory camera movement, dancing party-light shimmer, confetti timed to the reveal, and a clear birthday-party background instead of a generic cinematic setting.",
+    "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
     textDirection,
     musicDirection,
-    "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene.",
-    "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
-    `Concept: ${plan.concept}`,
-    `Scene direction: ${plan.sceneDirection}`,
-    `Motion direction: ${plan.motionDirection}`,
-    `Generation strategy: ${plan.generationStrategy}`,
+    `Concept: ${providerSafeText(plan.concept)}`,
+    `Scene direction: ${providerSafeText(plan.sceneDirection)}`,
+    `Motion direction: ${providerSafeText(plan.motionDirection)}`,
+    `Generation strategy: ${providerSafeText(plan.generationStrategy)}`,
     `Advanced direction: ${advancedDirection}`,
     `Keep these cues from the photo: ${plan.keepFromPhoto.join("; ")}.`,
     "Avoid text artifacts, watermarks, distorted hands, extra faces, or changing the subject's identity."
   ].join(" ");
+
+  return providerSafeText(prompt);
+}
+
+function providerSafeUserPrompt(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+
+  if (isAudioCleanupPrompt(normalized)) {
+    return "Create a cheerful birthday party video from the uploaded photo with narration-ready pacing, warm reactions, cake candles, confetti, balloons, dancing party lights, and gentle festive instrumental music underneath.";
+  }
+
+  return providerSafeText(normalized);
+}
+
+function isAudioCleanupPrompt(prompt: string) {
+  const lowered = prompt.toLowerCase();
+  const hasAudioRequest =
+    /\baudio\b|\bmusic\b|\bnarration\b|\bbackground\b|\bvolume\b/.test(lowered);
+  const hasCleanupRequest =
+    /\bremove\b|\bclean\b|\blower\b|\breduce\b|\bsuppress\b|\bwithout\b|\bno\b/.test(
+      lowered
+    );
+  const hasHarshCrowdNoise = /\bscreams?\b|\bscreaming\b|\bshouts?\b|\bshouting\b/.test(
+    lowered
+  );
+
+  return hasAudioRequest && (hasCleanupRequest || hasHarshCrowdNoise);
+}
+
+function providerSafeText(text: string) {
+  return text
+    .replace(/\bscreams?\b/gi, "loud crowd noise")
+    .replace(/\bscreaming\b/gi, "loud crowd noise")
+    .replace(/\bshouts?\b/gi, "loud crowd noise")
+    .replace(/\bshouting\b/gi, "loud crowd noise")
+    .replace(/\bremove\s+(?:the\s+)?background\s+audio\b/gi, "keep background audio gentle")
+    .replace(/\bremove\s+(?:the\s+)?audio\b/gi, "keep audio gentle")
+    .replace(/\bremove\s+harsh\s+audio\b/gi, "keep audio gentle")
+    .replace(/\bno\s+harsh\s+audio\b/gi, "gentle audio only")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildTextDirection(draft: DraftRequest, caption: string) {
@@ -293,9 +415,9 @@ function buildTextDirection(draft: DraftRequest, caption: string) {
     draft.mode === "advanced" && draft.advanced.captionStyle !== "None"
       ? draft.advanced.captionStyle.toLowerCase()
       : "subtle";
-  const text = birthdayOverlayText(caption);
+  const text = birthdayTextLine(draft, caption);
 
-  return `Embed tasteful ${style} on-screen birthday text directly in the video frames, not as a separate caption outside the video. Show a warm "Happy Birthday!" title followed by this compact 2-3 sentence message: "${text}". Use celebratory text effects: gold, coral, and champagne gradient lettering, gentle shimmer, soft glow, subtle scale-in reveal, and tiny confetti or sparkle accents. Avoid plain white text.`;
+  return `Embed only this exact tasteful ${style} on-screen birthday text directly in the video frames: "${text}". Do not add any other words, captions, subtitles, lower-thirds, labels, watermarks, or extra text anywhere in the video. Use celebratory text effects: gold, coral, and champagne gradient lettering, gentle shimmer, soft glow, subtle scale-in reveal, and tiny confetti or sparkle accents. Avoid plain white text.`;
 }
 
 function buildMusicDirection(draft: DraftRequest) {
@@ -303,10 +425,10 @@ function buildMusicDirection(draft: DraftRequest) {
     draft.mode === "advanced" ? draft.advanced.musicVibe : "Uplifting";
 
   if (hasVoiceSample(draft)) {
-    return "Do not generate spoken narration, synthetic dialogue, or native soundtrack audio. Leave the MP4 audio-free because the user's cloned ElevenLabs narration will be muxed into the final video after generation.";
+    return `Do not generate native audio for the MP4. The final audio will be created after generation from only the user's cloned narration and a low-volume ${musicVibe.toLowerCase()} birthday party music bed. Do not generate spoken narration, synthetic dialogue, singing voices, chants, crowd noise, or voice-like audio.`;
   }
 
-  return `Generate native audio in the final MP4 with a ${musicVibe.toLowerCase()} birthday music bed that matches the scene. Keep it as background music or ambient celebration audio, with no spoken narration unless the user explicitly asks for dialogue.`;
+  return `Generate native audio in the final MP4 with a fun ${musicVibe.toLowerCase()} birthday party music bed that matches the scene. Keep it as background music or ambient celebration audio, with no spoken narration unless the user explicitly asks for dialogue.`;
 }
 
 function hasVoiceSample(draft: DraftRequest) {
@@ -315,51 +437,64 @@ function hasVoiceSample(draft: DraftRequest) {
 
 function birthdayVoiceOverText(caption: string) {
   const fallback = "Happy birthday. I hope your day feels as special as you are.";
-  const normalized = (caption || fallback).replace(/\s+/g, " ").replaceAll('"', "'");
-
-  if (normalized.length <= 180) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, 177).trim()}...`;
-}
-
-function birthdayOverlayText(caption: string) {
-  const fallback = "Happy Birthday! Hope your day feels as special as you are.";
-  const normalized = compactCaptionText(caption || fallback).replaceAll('"', "'");
-
-  if (normalized.length <= 220) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, 217).trim()}...`;
-}
-
-function compactCaptionText(caption: string) {
-  const sentences = caption
+  const normalized = (caption || fallback)
     .replace(/\s+/g, " ")
-    .trim()
-    .match(/[^.!?]+[.!?]?/g)
-    ?.map((sentence) => sentence.trim())
-    .filter(Boolean);
+    .replaceAll('"', "'")
+    .replace(/\.+$/g, "")
+    .trim();
+  const excited = `${normalized}! Happy birthday! Let's celebrate!`;
 
-  if (!sentences?.length) {
-    return "Happy Birthday! Hope your day feels as special as you are.";
+  if (excited.length <= 520) {
+    return excited;
   }
 
-  return sentences.slice(0, 3).join(" ");
+  return `${normalized.slice(0, 517).trim()}!`;
 }
 
-function durationForEndpoint(endpoint: string, draft: DraftRequest) {
-  const requested =
-    draft.mode === "advanced" ? draft.advanced.videoLength : "10 seconds";
-  const seconds = requested.match(/\d+/)?.[0] || "10";
+function birthdayTextLine(draft: DraftRequest, caption: string) {
+  const name =
+    draft.birthdayName?.trim() ||
+    birthdayNameFromCaption(caption) ||
+    birthdayNameFromPrompt(draft.prompt);
 
-  if (seconds === "15" && !supportsLongDurations(endpoint)) {
-    return "10";
+  return name ? `Happy Birthday ${name}` : "Happy Birthday";
+}
+
+function birthdayNameFromCaption(caption: string) {
+  const match = caption.match(/^happy birthday(?:\s+to)?\s+([^.!?,]+)/i);
+  return match?.[1]?.trim() || "";
+}
+
+function birthdayNameFromPrompt(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  const match =
+    normalized.match(/\bfor\s+([^,.]+?)(?:,\s*my\b|\.|$)/i) ||
+    normalized.match(/\bhappy birthday\s+([^,.!]+)/i);
+
+  return match?.[1]?.trim() || "";
+}
+
+function targetVideoDurationSeconds(draft: DraftRequest) {
+  const requested =
+    draft.mode === "advanced" ? draft.advanced.videoLength : "30 seconds";
+
+  return Number(requested.match(/\d+/)?.[0] || "30");
+}
+
+function maxProviderDurationForEndpoint(endpoint: string) {
+  if (/\/v3|\/master\//.test(endpoint)) {
+    return 15;
   }
 
-  return seconds;
+  return 10;
+}
+
+function maxProviderPromptCharacters(endpoint: string) {
+  if (/kling-video/.test(endpoint)) {
+    return 512;
+  }
+
+  return 1800;
 }
 
 function aspectRatioForDraft(draft: DraftRequest) {
@@ -385,8 +520,16 @@ function supportsNativeAudio(endpoint: string) {
   return /\/v(2\.6|3)|\/master\//.test(endpoint);
 }
 
-function supportsLongDurations(endpoint: string) {
-  return /\/v3|\/master\//.test(endpoint);
+function supportsAspectRatio(endpoint: string) {
+  return /kling-video\/v(1|2\.1)\/.+\/image-to-video/.test(endpoint);
+}
+
+function supportsCfgScale(endpoint: string) {
+  return /kling-video\/v(1|2\.1|3)\/.+\/image-to-video/.test(endpoint);
+}
+
+function supportsNegativePrompt(endpoint: string) {
+  return /kling-video\/v(1|2\.1|2\.6|3)\/.+\/image-to-video/.test(endpoint);
 }
 
 function selectVideoEndpoint() {
@@ -404,6 +547,198 @@ type VoiceOverResult = {
   voiceOverUrl?: string;
   voiceOverError?: string;
 };
+
+async function submitFalVideoJob(endpoint: string, input: FalVideoInput) {
+  let lastSchemaError: unknown;
+  const candidates = buildSubmitCandidates(endpoint, input);
+
+  for (const [index, candidate] of candidates.entries()) {
+    try {
+      return {
+        input: candidate,
+        result: await fal.queue.submit(endpoint, { input: candidate }),
+        usedSchemaFallback: index > 0
+      };
+    } catch (error) {
+      if (!isUnprocessableEntity(error)) {
+        throw error;
+      }
+
+      lastSchemaError = error;
+    }
+  }
+
+  throw lastSchemaError;
+}
+
+function buildSubmitCandidates(endpoint: string, input: FalVideoInput) {
+  return uniqueFalInputs([
+    input,
+    buildSchemaFallbackInput(input, endpoint),
+    buildMinimalFalInput(input),
+    buildMinimalFalInput(input, true)
+  ]);
+}
+
+function buildSchemaFallbackInput(
+  input: FalVideoInput,
+  endpoint: string
+): FalVideoInput {
+  const fallback = { ...input };
+
+  if (fallback.multi_prompt) {
+    fallback.prompt = fallback.multi_prompt
+      .map((shot) => shot.prompt)
+      .join(" ");
+    fallback.duration = String(
+      Math.min(
+        fallback.multi_prompt.reduce(
+          (total, shot) => total + Number(shot.duration || 0),
+          0
+        ) || 15,
+        15
+      )
+    );
+    delete fallback.multi_prompt;
+    delete fallback.shot_type;
+  }
+
+  if (!supportsAspectRatio(endpoint)) {
+    delete fallback.aspect_ratio;
+  }
+
+  delete fallback.generate_audio;
+  delete fallback.cfg_scale;
+  delete fallback.negative_prompt;
+
+  return fallback;
+}
+
+function buildMinimalFalInput(
+  input: FalVideoInput,
+  useAlternateImageKey = false
+): FalVideoInput {
+  const prompt = compactProviderPrompt(
+    input.prompt ||
+      input.multi_prompt?.map((shot) => shot.prompt).join(" ") ||
+      "Create a warm, cinematic birthday celebration video from the uploaded photo.",
+    512
+  );
+  const imageUrl = input.start_image_url || input.image_url;
+  const duration = String(Math.min(Number(input.duration || "5") || 5, 5));
+  const minimal: FalVideoInput = {
+    prompt,
+    duration
+  };
+
+  if (useAlternateImageKey) {
+    if (input.start_image_url) {
+      minimal.image_url = imageUrl;
+    } else {
+      minimal.start_image_url = imageUrl;
+    }
+  } else if (input.start_image_url) {
+    minimal.start_image_url = imageUrl;
+  } else {
+    minimal.image_url = imageUrl;
+  }
+
+  return minimal;
+}
+
+function compactProviderPrompt(prompt: string, maxCharacters = 1800) {
+  const compact = prompt.replace(/\s+/g, " ").trim();
+
+  if (compact.length <= maxCharacters) {
+    return compact;
+  }
+
+  const sliced = compact.slice(0, Math.max(0, maxCharacters - 1)).trim();
+  const lastSentence = Math.max(
+    sliced.lastIndexOf("."),
+    sliced.lastIndexOf(";"),
+    sliced.lastIndexOf(",")
+  );
+
+  if (lastSentence > maxCharacters * 0.6) {
+    return sliced.slice(0, lastSentence).trim();
+  }
+
+  return sliced;
+}
+
+function uniqueFalInputs(inputs: FalVideoInput[]) {
+  const seen = new Set<string>();
+
+  return inputs.filter((input) => {
+    const key = JSON.stringify(input);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function isUnprocessableEntity(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as {
+    status?: number;
+    statusCode?: number;
+    message?: string;
+    body?: string;
+  };
+
+  return (
+    candidate.status === 422 ||
+    candidate.statusCode === 422 ||
+    candidate.message?.includes("Unprocessable Entity") ||
+    candidate.body?.includes("Unprocessable Entity")
+  );
+}
+
+function providerPollingFailure(error: unknown, fallback: string) {
+  const detail = providerExceptionMessage(error, fallback);
+
+  return {
+    stage: "failed" as const,
+    statusMessage: isUnprocessableEntity(error)
+      ? "The video provider rejected the queued generation request."
+      : fallback,
+    error: detail
+  };
+}
+
+function providerExceptionMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
+
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      message?: string;
+      body?: string;
+      status?: number;
+      statusCode?: number;
+    };
+    const message = candidate.message || candidate.body;
+
+    if (message) {
+      return message;
+    }
+
+    if (candidate.status || candidate.statusCode) {
+      return `${fallback} HTTP ${candidate.status || candidate.statusCode}.`;
+    }
+  }
+
+  return fallback;
+}
 
 async function createElevenLabsVoiceOver(
   planRecord: PlanRecord,
@@ -529,9 +864,9 @@ async function createElevenLabsSpeech(
         text,
         model_id: getServerEnv("ELEVENLABS_TTS_MODEL") || defaultElevenLabsTtsModel,
         voice_settings: {
-          stability: 0.48,
+          stability: 0.34,
           similarity_boost: 0.86,
-          style: 0.12,
+          style: 0.82,
           use_speaker_boost: true
         }
       })
@@ -558,16 +893,22 @@ async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
 }
 
 async function resolveFinalVideoUrl(videoUrl: string, job: JobRecord) {
+  const baseVideoUrl = videoUrl;
+
   if (!job.voiceOverUrl) {
     return {
-      videoUrl,
+      videoUrl: baseVideoUrl,
       voiceOverUrl: job.voiceOverUrl,
       voiceOverError: job.voiceOverError
     };
   }
 
   try {
-    const voicedVideoUrl = await muxVoiceOverIntoVideo(videoUrl, job.voiceOverUrl);
+    const voicedVideoUrl = await muxVoiceOverIntoVideo(
+      baseVideoUrl,
+      job.voiceOverUrl,
+      job.targetDurationSeconds
+    );
 
     return {
       videoUrl: voicedVideoUrl,
@@ -579,18 +920,23 @@ async function resolveFinalVideoUrl(videoUrl: string, job: JobRecord) {
       error instanceof Error ? error.message : "Voice-over muxing failed.";
 
     return {
-      videoUrl,
+      videoUrl: baseVideoUrl,
       voiceOverUrl: job.voiceOverUrl,
       voiceOverError: `${job.voiceOverError ? `${job.voiceOverError} ` : ""}Cloned voice-over was generated, but it could not be merged into the MP4. Preview will play it separately. ${detail}`
     };
   }
 }
 
-async function muxVoiceOverIntoVideo(videoUrl: string, voiceOverUrl: string) {
+async function muxVoiceOverIntoVideo(
+  videoUrl: string,
+  voiceOverUrl: string,
+  targetDurationSeconds = maxMuxedVideoDurationSeconds
+) {
   if (!ffmpegPath) {
     throw new Error("ffmpeg binary is not available.");
   }
 
+  const ffmpegBin = ffmpegPath;
   const workspace = await mkdtemp(join(tmpdir(), "birthdaybot-voice-"));
 
   try {
@@ -603,27 +949,14 @@ async function muxVoiceOverIntoVideo(videoUrl: string, voiceOverUrl: string) {
     await writeFile(inputVideo, video.bytes);
     await writeFile(inputVoice, voiceOver.bytes);
 
-    await execFileAsync(ffmpegPath, [
-      "-y",
-      "-i",
+    await muxAndCompressVoiceOver({
+      ffmpegBin,
       inputVideo,
-      "-i",
       inputVoice,
-      "-map",
-      "0:v:0",
-      "-map",
-      "1:a:0",
-      "-c:v",
-      "copy",
-      "-c:a",
-      "aac",
-      "-af",
-      "apad",
-      "-shortest",
-      "-movflags",
-      "+faststart",
-      outputVideo
-    ]);
+      outputVideo,
+      durationSeconds: finalMuxedVideoDurationSeconds(targetDurationSeconds),
+      videoBitrateKbps: finalVideoBitrateKbps
+    });
 
     const outputBytes = await readFile(outputVideo);
 
@@ -635,6 +968,110 @@ async function muxVoiceOverIntoVideo(videoUrl: string, voiceOverUrl: string) {
   } finally {
     await rm(workspace, { force: true, recursive: true });
   }
+}
+
+async function muxAndCompressVoiceOver({
+  ffmpegBin,
+  inputVideo,
+  inputVoice,
+  outputVideo,
+  durationSeconds,
+  videoBitrateKbps
+}: {
+  ffmpegBin: string;
+  inputVideo: string;
+  inputVoice: string;
+  outputVideo: string;
+  durationSeconds: number;
+  videoBitrateKbps: number;
+}) {
+  await execFileAsync(
+    ffmpegBin,
+    muxFfmpegArgs({
+      inputVideo,
+      inputVoice,
+      outputVideo,
+      durationSeconds,
+      videoBitrateKbps
+    })
+  );
+}
+
+function muxFfmpegArgs({
+  inputVideo,
+  inputVoice,
+  outputVideo,
+  durationSeconds,
+  videoBitrateKbps
+}: {
+  inputVideo: string;
+  inputVoice: string;
+  outputVideo: string;
+  durationSeconds: number;
+  videoBitrateKbps: number;
+}) {
+  return [
+    "-y",
+    "-i",
+    inputVideo,
+    "-i",
+    inputVoice,
+    "-f",
+    "lavfi",
+    "-i",
+    partyMusicLavfiSource(),
+    "-t",
+    String(durationSeconds),
+    "-filter_complex",
+    "[2:a:0]volume=0.22,apad[party_bed];[1:a:0]volume=1.18,acompressor=threshold=-18dB:ratio=2.4:attack=8:release=90,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
+    "-map",
+    "0:v:0",
+    "-map",
+    "[aout]",
+    "-vf",
+    "scale='if(gte(iw,ih),-2,720)':'if(gte(iw,ih),720,-2)'",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-b:v",
+    `${videoBitrateKbps}k`,
+    "-maxrate",
+    `${videoBitrateKbps}k`,
+    "-bufsize",
+    `${videoBitrateKbps * 2}k`,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    `${finalVideoAudioBitrateKbps}k`,
+    "-shortest",
+    "-movflags",
+    "+faststart",
+    outputVideo
+  ];
+}
+
+function finalMuxedVideoDurationSeconds(targetDurationSeconds: number) {
+  return Math.max(
+    1,
+    Math.min(targetDurationSeconds || maxMuxedVideoDurationSeconds, maxMuxedVideoDurationSeconds)
+  );
+}
+
+function partyMusicLavfiSource() {
+  return [
+    "aevalsrc=",
+    "'",
+    "0.08*sin(2*PI*220*t)*(gt(mod(t\\,0.5)\\,0.08))",
+    "+0.06*sin(2*PI*277.18*t)*(gt(mod(t\\,0.5)\\,0.08))",
+    "+0.05*sin(2*PI*329.63*t)*(gt(mod(t\\,0.5)\\,0.08))",
+    "+0.04*sin(2*PI*440*t)*(gt(mod(t\\,0.25)\\,0.04))",
+    "+0.05*sin(2*PI*880*t)*(lt(mod(t\\,1)\\,0.035))",
+    "'",
+    ":s=44100"
+  ].join("");
 }
 
 async function mediaUrlToBuffer(url: string) {
@@ -676,6 +1113,97 @@ function dataUrlToBlob(dataUrl: string, name: string) {
   const mime = header.match(/data:(.*);base64/)?.[1] || "image/png";
   const bytes = Buffer.from(data, "base64");
   return new File([bytes], name, { type: mime });
+}
+
+async function providerReadyImageFile(dataUrl: string, name: string) {
+  const original = dataUrlToBlob(dataUrl, name);
+
+  if (original.size < falMaxUploadBytes && original.size <= falTargetImageUploadBytes) {
+    return original;
+  }
+
+  if (!ffmpegPath || !dataUrl.startsWith("data:image/")) {
+    if (original.size < falMaxUploadBytes) {
+      return original;
+    }
+
+    throw new Error(
+      `Photo is ${original.size} bytes, which exceeds fal.ai's ${falMaxUploadBytes}-byte upload limit.`
+    );
+  }
+
+  const ffmpegBin = ffmpegPath;
+  const workspace = await mkdtemp(join(tmpdir(), "birthdaybot-image-"));
+
+  try {
+    const [header, data] = dataUrl.split(",");
+    const mime = header.match(/data:(.*);base64/)?.[1] || "image/png";
+    const extension = extensionForMimeType(mime);
+    const inputImage = join(workspace, `input.${extension}`);
+
+    await writeFile(inputImage, Buffer.from(data, "base64"));
+
+    for (const candidate of imageCompressionCandidates()) {
+      const outputImage = join(
+        workspace,
+        `provider-photo-${candidate.maxDimension}-${candidate.quality}.jpg`
+      );
+
+      await execFileAsync(ffmpegBin, [
+        "-y",
+        "-i",
+        inputImage,
+        "-vf",
+        `scale=w='if(gte(iw,ih),min(iw,${candidate.maxDimension}),-2)':h='if(gte(iw,ih),-2,min(ih,${candidate.maxDimension}))'`,
+        "-frames:v",
+        "1",
+        "-q:v",
+        String(candidate.quality),
+        outputImage
+      ]);
+
+      const outputBytes = await readFile(outputImage);
+
+      if (outputBytes.byteLength <= falTargetImageUploadBytes) {
+        return new File([outputBytes], replaceImageExtension(name, "jpg"), {
+          type: "image/jpeg"
+        });
+      }
+    }
+
+    throw new Error(
+      `Compressed photo still exceeds fal.ai's ${falMaxUploadBytes}-byte upload limit.`
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+}
+
+function imageCompressionCandidates() {
+  return [
+    { maxDimension: 2048, quality: 4 },
+    { maxDimension: 1600, quality: 5 },
+    { maxDimension: 1280, quality: 6 },
+    { maxDimension: 960, quality: 7 },
+    { maxDimension: 720, quality: 8 }
+  ];
+}
+
+function extensionForMimeType(mime: string) {
+  if (mime.includes("jpeg") || mime.includes("jpg")) {
+    return "jpg";
+  }
+
+  if (mime.includes("webp")) {
+    return "webp";
+  }
+
+  return "png";
+}
+
+function replaceImageExtension(name: string, extension = "png") {
+  const base = name.replace(/\.[a-z0-9]+$/i, "");
+  return `${base || "photo"}.${extension}`;
 }
 
 function extractVideoUrl(data: unknown) {

@@ -20,6 +20,7 @@ import {
 
 type FormErrors = {
   photo?: string;
+  birthdayName?: string;
   prompt?: string;
   voiceSample?: string;
   voiceConsent?: string;
@@ -37,6 +38,7 @@ const tones = [
 ] as const;
 
 const sceneIdeas = [
+  "Birthday party",
   "Birthday dinner",
   "Beach golden hour",
   "Road trip montage",
@@ -48,10 +50,11 @@ const motionLevels = ["Subtle", "Moderate", "Dramatic"] as const;
 const aspectRatios = ["Portrait", "Square", "Landscape"] as const;
 
 const voiceSampleScript =
-  "Happy birthday. I wanted to make this feel a little more personal than a regular message. I am grateful for the easy laughs, the small stories we keep returning to, and the way you make ordinary days feel warmer. I hope this year brings you good surprises, real rest, and people who show up for you in the ways that matter. You deserve a day that feels generous, joyful, and completely yours. So here is to another year of memories, tiny adventures, and moments that remind you how loved you are.";
+  "Happy birthday. I wanted this to feel more personal than a regular message, because you deserve something with a little sparkle in it. I am grateful for your laugh, your heart, and the way you make ordinary moments feel worth remembering. I hope this next year brings good surprises, real peace, and more reasons to celebrate who you are.";
 
 export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [mode, setMode] = useState<"simple" | "advanced">("simple");
+  const [birthdayName, setBirthdayName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [photoName, setPhotoName] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState("");
@@ -341,6 +344,10 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       nextErrors.photo = "Add one shared photo to continue.";
     }
 
+    if (!birthdayName.trim()) {
+      nextErrors.birthdayName = "Add their name for the birthday text.";
+    }
+
     if (!prompt.trim()) {
       nextErrors.prompt = "Describe what the birthday video should feel like.";
     }
@@ -357,6 +364,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   function buildDraft(): DraftRequest {
     return {
       mode,
+      birthdayName: birthdayName.trim(),
       prompt: prompt.trim(),
       photoName,
       photoDataUrl,
@@ -507,8 +515,21 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         {statusError ? <p className="field-error">{statusError}</p> : null}
 
         <div className="action-row">
-          <button className="primary-action" type="button" onClick={startGeneration}>
-            Generate birthday video
+          <button
+            className="primary-action"
+            type="button"
+            onClick={startGeneration}
+            disabled={isStartingGeneration}
+            aria-busy={isStartingGeneration}
+          >
+            {isStartingGeneration ? (
+              <>
+                <span className="button-spinner" aria-hidden="true" />
+                Starting generation
+              </>
+            ) : (
+              "Generate birthday video"
+            )}
           </button>
           <button className="ghost-action" type="button" onClick={adjustSettings}>
             Adjust prompt
@@ -525,6 +546,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     return (
       <section className="status-panel" aria-live="polite">
         <p className="summary-label">Generation in progress</p>
+        <GenerationLoader stage={job.stage} />
         <h2>{stageHeading(job.stage)}</h2>
         <p>{job.statusMessage}</p>
         {job.attempts > 1 ? (
@@ -551,6 +573,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           caption={caption}
           videoUrl={job.videoUrl}
           voiceOverUrl={job.voiceOverUrl}
+          birthdayName={plannedDraft?.birthdayName}
         />
         {job.voiceOverError ? (
           <p className="field-error">{job.voiceOverError}</p>
@@ -600,6 +623,27 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           Advanced
         </button>
       </div>
+
+      <label className="field">
+        <span>Birthday name</span>
+        <input
+          aria-label="Birthday name"
+          name="birthday-name"
+          placeholder="Maya"
+          value={birthdayName}
+          onChange={(event) => {
+            setBirthdayName(event.target.value);
+            setErrors((current) => ({ ...current, birthdayName: undefined }));
+          }}
+          aria-invalid={Boolean(errors.birthdayName)}
+          aria-describedby={errors.birthdayName ? "birthday-name-error" : undefined}
+        />
+      </label>
+      {errors.birthdayName ? (
+        <p className="field-error" id="birthday-name-error">
+          {errors.birthdayName}
+        </p>
+      ) : null}
 
       <label className="field">
         <span>Prompt</span>
@@ -725,7 +769,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <span className="upload-meta">
             {recordingState === "recording"
               ? "Speak naturally and leave a tiny pause between sentences."
-              : "Aim for about 60 seconds in a quiet room."}
+              : "Aim for about 30 seconds in a quiet room."}
           </span>
         </div>
 
@@ -811,7 +855,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <SelectField
             label="Video length"
             value={advanced.videoLength}
-            options={["5 seconds", "10 seconds", "15 seconds"]}
+            options={["10 seconds", "15 seconds", "30 seconds"]}
             onChange={(value) =>
               setAdvanced((current) => ({ ...current, videoLength: value }))
             }
@@ -875,11 +919,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 function ResultVideo({
   caption,
   videoUrl,
-  voiceOverUrl
+  voiceOverUrl,
+  birthdayName
 }: {
   caption: string;
   videoUrl: string;
   voiceOverUrl?: string;
+  birthdayName?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -940,10 +986,11 @@ function ResultVideo({
       ) : null}
       <div
         className="video-caption-overlay"
-        aria-label={`Happy Birthday! ${videoOverlayCaption(caption)}`}
+        aria-label={birthdayOverlayLine(birthdayName, caption)}
       >
-        <span className="video-caption-title">Happy Birthday!</span>
-        <span className="video-caption-message">{videoOverlayCaption(caption)}</span>
+        <span className="video-caption-title">
+          {birthdayOverlayLine(birthdayName, caption)}
+        </span>
       </div>
     </div>
   );
@@ -976,6 +1023,24 @@ function SelectField({
         ))}
       </select>
     </label>
+  );
+}
+
+function GenerationLoader({ stage }: { stage: JobRecord["stage"] }) {
+  return (
+    <div className="generation-loader" role="img" aria-label="Birthday video loading animation">
+      <div className="loader-film" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="loader-orbit" aria-hidden="true">
+        <span className="loader-spark one" />
+        <span className="loader-spark two" />
+        <span className="loader-spark three" />
+      </div>
+      <p>{stageHeading(stage)}</p>
+    </div>
   );
 }
 
@@ -1044,30 +1109,15 @@ function stageHeading(stage: JobRecord["stage"]) {
   }
 }
 
-function videoOverlayCaption(caption: string) {
-  const fallback = "Happy Birthday! Hope your day feels as special as you are.";
-  const normalized = compactCaptionText(caption || fallback);
+function birthdayOverlayLine(name: string | undefined, caption: string) {
+  const resolvedName = name?.trim() || birthdayNameFromCaption(caption);
 
-  if (normalized.length <= 220) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, 217).trim()}...`;
+  return resolvedName ? `Happy Birthday ${resolvedName}` : "Happy Birthday";
 }
 
-function compactCaptionText(caption: string) {
-  const sentences = caption
-    .replace(/\s+/g, " ")
-    .trim()
-    .match(/[^.!?]+[.!?]?/g)
-    ?.map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  if (!sentences?.length) {
-    return "Happy Birthday! Hope your day feels as special as you are.";
-  }
-
-  return sentences.slice(0, 3).join(" ");
+function birthdayNameFromCaption(caption: string) {
+  const match = caption.match(/^happy birthday(?:\s+to)?\s+([^.!?,]+)/i);
+  return match?.[1]?.trim() || "";
 }
 
 function formatDuration(seconds: number) {
