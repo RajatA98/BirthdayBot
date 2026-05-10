@@ -151,7 +151,10 @@ describe("CreationForm", () => {
     );
     expect(createPlan).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Heartfelt birthday reveal")).toBeInTheDocument();
-    expect(screen.getByText("On-video text")).toBeInTheDocument();
+    expect(screen.getByText("Birthday message")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Editable birthday message")
+    ).toBeInTheDocument();
   });
 
   it("sends one optional voice sample with the draft", async () => {

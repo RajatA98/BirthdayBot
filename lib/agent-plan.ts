@@ -49,12 +49,17 @@ export function buildMockPlan(
 
 export function buildMockCaption(input: DraftRequest, plan: AgentPlan) {
   const name = input.birthdayName?.trim();
-  const opening =
-    input.mode === "advanced" && input.advanced.tone === "Funny"
-      ? `${name ? `Happy birthday ${name}. You are` : "Happy birthday to"} the chaos partner I would still choose every time.`
-      : `${name ? `Happy birthday ${name}. You are` : "Happy birthday to"} one of my favorite people.`;
+  const isFunny = input.mode === "advanced" && input.advanced.tone === "Funny";
 
-  return `${opening} I wanted this to feel more personal than a normal text, so I turned one of our moments into a mini birthday movie. I hope this year gives you the kind of surprises that make you pause, laugh, and feel deeply loved. You deserve a day full of good stories, real joy, and people who show up for you. Happy birthday.`;
+  if (isFunny) {
+    return name
+      ? `Happy birthday, ${name}. Chaos partner of the year, every year. Hope this one's a good one. Love you.`
+      : `Happy birthday. Chaos partner of the year, every year. Hope this one's a good one. Love you.`;
+  }
+
+  return name
+    ? `Happy birthday, ${name}. Just wanted to send something that actually feels like me. Hope this year's a great one.`
+    : `Happy birthday. Just wanted to send something that actually feels like me. Hope this year's a great one.`;
 }
 
 function buildDirectorPrompt({

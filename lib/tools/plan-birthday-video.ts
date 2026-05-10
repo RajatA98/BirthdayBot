@@ -70,7 +70,7 @@ const combinedSchema = {
       caption: {
         type: "string",
         description:
-          "Short, personal birthday voice-over script. 28-38 words, ~12-14 seconds when read aloud, warm, sendable, and natural."
+          "Short, sweet, personal birthday message. 18-26 words, ~7-10 seconds when read aloud. One specific personal detail, no generic Hallmark phrases. The user can edit this before generation."
       }
     }
   },
@@ -128,12 +128,14 @@ const systemInstructions = [
   "- sceneGuardrails always include 'Preserve exactly N people' (with N from subjectCount) and 'No identity drift'. Add up to two additional guardrails specific to the scene if useful.",
   "",
   "CAPTION RULES (the voice-over script)",
-  "- Heartfelt, sendable, natural. Like a real text from a friend, not a Hallmark card.",
-  "- Target 28-38 words so it reads in ~12-14 seconds aloud, fitting under a 15-second video with breathing room.",
-  "- Address the birthday person by name when birthdayName is provided.",
-  "- Single paragraph. End with a 'Happy birthday' close or a warm equivalent.",
-  "- Do not use emoji, hashtags, markdown, asterisks, or stage directions.",
+  "- SHORT, SWEET, PERSONAL. Like a quick voice memo from a close friend, not a Hallmark card. The user is going to read this on the review screen and may edit it — give them a starting point worth keeping, not a paragraph to trim.",
+  "- Target 18-26 words so it reads in ~7-10 seconds aloud. Shorter is better than longer; 14 words can be perfect.",
+  "- Use the birthday person's name once when birthdayName is provided. Do not repeat it.",
+  "- Anchor on ONE specific personal touch (a shared moment, a quirk, an inside reference if the prompt suggests one) rather than generic 'wishing you the best year'.",
+  "- Single short paragraph. End with 'Happy birthday' or a warm equivalent.",
+  "- Do not use emoji, hashtags, markdown, asterisks, stage directions, or bracketed audio tags.",
   "- Do not start with filler ('Um,' 'Hey,' 'So,'). Start with the warmth.",
+  "- Avoid Hallmark phrases like 'on this special day', 'wishing you all the best', 'may your day be filled with', 'hope this year brings you', 'words can't express'. Pick one warm idea and let it land.",
   "",
   "EXAMPLE OF A GOOD OUTPUT (illustrative, do not echo verbatim)",
   "{",
@@ -154,13 +156,13 @@ const systemInstructions = [
   '    "negativePrompt": "identity drift, face replacement, gender swap, outfit replacement, extra people, duplicate person, subject removal, unnatural anatomy, distorted hands, garbled text",',
   '    "narrationVoiceCue": "warm American female, intimate"',
   "  },",
-  '  "caption": "Happy birthday to one of my favorite people. I wanted this to feel a little more personal than a regular text. I hope this year gives you the kind of surprises that make you pause, laugh, and feel deeply loved. Happy birthday."',
+  '  "caption": "Happy birthday, you. Picked the rooftop on purpose — that was such a good night. Hope this year keeps that energy. Love you."',
   "}",
   "",
   "EXAMPLES OF OUTPUTS TO REJECT",
   "- Adding a person who is not in the photo (even a 'small group of friends' is a swap).",
   "- A safePrompt that omits the Constraints section.",
-  "- A caption that is over 38 words, has emojis, or starts with 'Hey,'.",
+  "- A caption over 26 words, with emoji, or that starts with 'Hey,', 'On this special day,', or any Hallmark phrase.",
   "- subjectCount that doesn't match the photoAnalysis.",
   "- identityAnchors that paraphrase or shorten the photoAnalysis values.",
   "",

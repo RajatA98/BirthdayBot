@@ -517,6 +517,43 @@ select:focus,
   cursor: not-allowed;
 }
 
+.editable-caption {
+  display: grid;
+  gap: 10px;
+}
+
+.editable-caption-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.editable-caption-count {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.editable-caption-input {
+  width: 100%;
+  min-height: 92px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--card-strong);
+  padding: 12px 14px;
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.editable-caption-input:focus {
+  outline: 2px solid rgba(216, 94, 53, 0.35);
+  outline-offset: 3px;
+}
+
 .ai-badge {
   display: inline-flex;
   align-items: center;

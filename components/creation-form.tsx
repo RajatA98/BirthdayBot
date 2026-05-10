@@ -920,9 +920,25 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         <PlanList label="Scene guardrails" items={plan.sceneGuardrails} />
         <PlanCard label="Caption approach" value={plan.captionApproach} />
 
-        <section className="summary-card">
-          <p className="summary-label">On-video text</p>
-          <p>{caption}</p>
+        <section className="summary-card editable-caption">
+          <div className="editable-caption-header">
+            <p className="summary-label">Birthday message</p>
+            <span className="editable-caption-count" aria-live="polite">
+              {wordCount(caption)} words · {caption.length} chars
+            </span>
+          </div>
+          <textarea
+            value={caption}
+            onChange={(event) => setCaption(event.target.value)}
+            placeholder="Short, sweet, personal..."
+            rows={3}
+            aria-label="Editable birthday message"
+            className="editable-caption-input"
+          />
+          <p className="subtle-note">
+            This is what the cloned voice will read. Keep it short and
+            personal — 18-26 words reads beautifully in a 15-second video.
+          </p>
         </section>
 
         <section className="summary-card">
@@ -2213,6 +2229,10 @@ function writeAscii(view: DataView, offset: number, value: string) {
   for (let index = 0; index < value.length; index += 1) {
     view.setUint8(offset + index, value.charCodeAt(index));
   }
+}
+
+function wordCount(text: string) {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
 function formatDuration(seconds: number) {
