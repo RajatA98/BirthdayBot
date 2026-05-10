@@ -452,6 +452,17 @@ select:focus,
   line-height: 1.32;
 }
 
+.voice-take-hint {
+  margin: 4px 0 0 !important;
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.voice-take-hint-warn {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
 .voice-clip-list {
   display: grid;
   gap: 10px;

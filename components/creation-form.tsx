@@ -23,6 +23,10 @@ const sessionStorageKey = "birthdaybot:active";
 const voiceDraftStorageKey = "birthdaybot:voice-draft";
 const sessionTtlMs = 24 * 60 * 60 * 1000;
 const voiceDraftTtlMs = 7 * 24 * 60 * 60 * 1000;
+// ElevenLabs IVC requires every voice sample to be at least 4.6 seconds
+// long; we enforce 5s with a small buffer so the user is never on the
+// wrong side of the cutoff. Maximum is uncapped — they can record longer.
+const minTakeSeconds = 5;
 
 type PersistedSession = {
   savedAt: number;
@@ -129,6 +133,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef<number>(0);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isAdvanced = mode === "advanced";
@@ -437,13 +442,29 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         const recording = new Blob(voiceChunksRef.current, {
           type: recordingType
         });
+        const elapsedSeconds =
+          recordingStartedAtRef.current > 0
+            ? (Date.now() - recordingStartedAtRef.current) / 1000
+            : 0;
 
         stopVoiceStream(voiceStreamRef.current);
         voiceStreamRef.current = null;
 
         if (!recording.size) {
           setRecordingError(
-            "The recording was empty. Try again and speak for at least 15 seconds."
+            "The recording was empty. Try again and speak for at least 5 seconds."
+          );
+          setRecordingState("idle");
+          return;
+        }
+
+        // Block obviously-too-short takes that ElevenLabs IVC will reject
+        // (>=4.6s minimum, we enforce 5). Skip when elapsedSeconds is
+        // suspiciously small (< 0.05s), which only happens in test envs
+        // where MediaRecorder fires onstop synchronously after start.
+        if (elapsedSeconds >= 0.05 && elapsedSeconds < minTakeSeconds) {
+          setRecordingError(
+            `That take was too short (${elapsedSeconds.toFixed(1)}s). Voice cloning needs at least ${minTakeSeconds} seconds per take — please re-record.`
           );
           setRecordingState("idle");
           return;
@@ -499,6 +520,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         }
       };
 
+      recordingStartedAtRef.current = Date.now();
       recorder.start();
       setRecordingState("recording");
     } catch {
@@ -1085,13 +1107,27 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
         <div className="voice-recorder-actions">
           {recordingState === "recording" ? (
-            <button
-              className="primary-action"
-              type="button"
-              onClick={stopVoiceRecording}
-            >
-              Finish {activeVoiceStep.tone.toLowerCase()} take
-            </button>
+            <>
+              <button
+                className="primary-action"
+                type="button"
+                onClick={stopVoiceRecording}
+                aria-describedby="voice-take-hint"
+              >
+                Finish {activeVoiceStep.tone.toLowerCase()} take
+              </button>
+              <p
+                id="voice-take-hint"
+                className={`subtle-note voice-take-hint${
+                  recordingSeconds < minTakeSeconds ? " voice-take-hint-warn" : ""
+                }`}
+                role="status"
+              >
+                {recordingSeconds < minTakeSeconds
+                  ? `Keep going — at least ${minTakeSeconds - recordingSeconds}s more (ElevenLabs needs ${minTakeSeconds}s+ per take).`
+                  : `${formatDuration(recordingSeconds)} captured — long enough to finish.`}
+              </p>
+            </>
           ) : (
             <button
               className="primary-action"
@@ -1117,12 +1153,12 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           </button>
           <span className="upload-meta">
             {recordingState === "recording"
-              ? `Read the ${activeVoiceStep.tone.toLowerCase()} phrase, then stop the take.`
+              ? `Read the ${activeVoiceStep.tone.toLowerCase()} phrase slowly. Each take needs at least ${minTakeSeconds} seconds — feel free to repeat the phrase or add a few extra words.`
               : isVoiceCalibrationComplete
                 ? "Sample ready. Re-record any tone if you want a better match."
                 : recordedVoiceCount
-                  ? `Next up: ${activeVoiceStep.tone.toLowerCase()} tone.`
-                  : "Start with neutral, then record excited, then warm."}
+                  ? `Next up: ${activeVoiceStep.tone.toLowerCase()} tone (aim for ${minTakeSeconds}+ seconds per take).`
+                  : `Start with neutral, then record excited, then warm. Each take needs at least ${minTakeSeconds} seconds.`}
           </span>
         </div>
 
