@@ -64,6 +64,46 @@ async function createVoiceOverInner(
   const text = birthdayVoiceOverText(planRecord.caption);
   const hasSample = Boolean(draft.voiceSampleDataUrl || draft.voiceSampleClips?.length);
   const hasConsent = Boolean(draft.voiceConsent);
+  const isSpeakYourself =
+    draft.voiceMode === "speak-yourself" && Boolean(draft.userMessageDataUrl);
+
+  // Speak-yourself mode: the user recorded their actual birthday message in
+  // their own voice. We route it through ElevenLabs Voice Changer (S2S) so
+  // the *output* sounds polished but their prosody, timing, laughs, and
+  // emotional delivery are preserved verbatim — TTS-from-script can never
+  // do that.
+  if (isSpeakYourself && hasSample && hasConsent) {
+    let voiceId: string | undefined;
+    try {
+      voiceId = await createElevenLabsVoice(draft, apiKey);
+      const voiceOverUrl = await createElevenLabsSpeechToSpeech(
+        voiceId,
+        draft.userMessageDataUrl as string,
+        apiKey
+      );
+
+      draft.voiceSampleName = undefined;
+      draft.voiceSampleDataUrl = undefined;
+      draft.voiceSampleClips = undefined;
+      draft.voiceConsent = undefined;
+      draft.userMessageDataUrl = undefined;
+
+      return {
+        providerVoiceId: voiceId,
+        voiceOverUrl
+      };
+    } catch (error) {
+      console.warn(
+        "[birthdaybot:voice_clone] speech-to-speech failed, falling back to stock voice:",
+        error instanceof Error ? error.message : error
+      );
+      // fall through to stock-voice fallback (will be TTS, not S2S)
+    } finally {
+      if (voiceId) {
+        await deleteElevenLabsVoice(voiceId, apiKey);
+      }
+    }
+  }
 
   // Try the user's cloned voice first — only if they uploaded a sample AND
   // explicitly confirmed cloning consent. Without consent we never upload
@@ -401,6 +441,49 @@ async function createElevenLabsSpeech(
   const contentType = response.headers.get("content-type") || "audio/mpeg";
   const bytes = Buffer.from(await response.arrayBuffer());
 
+  return `data:${contentType};base64,${bytes.toString("base64")}`;
+}
+
+async function createElevenLabsSpeechToSpeech(
+  voiceId: string,
+  sourceAudioDataUrl: string,
+  apiKey: string
+) {
+  const sourceFile = dataUrlToBlob(sourceAudioDataUrl, "user-message.webm");
+  const form = new FormData();
+  form.append("audio", sourceFile);
+  form.append(
+    "model_id",
+    getServerEnv("ELEVENLABS_STS_MODEL") || "eleven_multilingual_sts_v2"
+  );
+  form.append(
+    "voice_settings",
+    JSON.stringify({
+      stability: 0.5,
+      similarity_boost: 0.85,
+      style: 0,
+      use_speaker_boost: true
+    })
+  );
+  form.append("remove_background_noise", "true");
+
+  const response = await fetch(
+    `${elevenLabsBaseUrl}/speech-to-speech/${voiceId}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": apiKey },
+      body: form
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await providerErrorMessage(response, "ElevenLabs Voice Changer failed.")
+    );
+  }
+
+  const contentType = response.headers.get("content-type") || "audio/mpeg";
+  const bytes = Buffer.from(await response.arrayBuffer());
   return `data:${contentType};base64,${bytes.toString("base64")}`;
 }
 

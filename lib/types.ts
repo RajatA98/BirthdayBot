@@ -11,6 +11,8 @@ export type AdvancedSettings = {
   agentGoalMode: string;
 };
 
+export type VoiceMode = "narrate" | "speak-yourself" | "song";
+
 export type DraftRequest = {
   mode: Mode;
   birthdayName?: string;
@@ -21,6 +23,8 @@ export type DraftRequest = {
   voiceSampleDataUrl?: string;
   voiceSampleClips?: string[];
   voiceConsent?: boolean;
+  voiceMode?: VoiceMode;
+  userMessageDataUrl?: string;
   advanced: AdvancedSettings;
 };
 

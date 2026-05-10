@@ -373,6 +373,66 @@ describe("startVideoGeneration voice-over", () => {
     expect(result.voiceOverError).toBeUndefined();
   });
 
+  it("speech-to-speech: when voiceMode=speak-yourself and userMessageDataUrl is set, calls /v1/speech-to-speech/{voice_id} with the user's recording", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // 1) IVC voices/add succeeds
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            voice_id: "eleven_voice_s2s",
+            requires_verification: false
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      // 2) Speech-to-speech conversion succeeds
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([10, 11, 12]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      )
+      // 3) Voice delete cleanup
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true,
+        voiceMode: "speak-yourself",
+        userMessageDataUrl: "data:audio/webm;base64,bWVzc2FnZQ=="
+      })
+    );
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    // Must NOT call /v1/text-to-speech (TTS path).
+    const ttsTextCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/text-to-speech/")
+    );
+    expect(ttsTextCalls).toHaveLength(0);
+
+    // Must call /v1/speech-to-speech/{voice_id} with the user's audio.
+    const s2sCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/speech-to-speech/eleven_voice_s2s")
+    );
+    expect(s2sCalls).toHaveLength(1);
+
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,CgsM");
+    expect(result.voiceOverError).toBeUndefined();
+  });
+
   it("fails clearly instead of falling back to the stock demo video when fal is not configured", async () => {
     process.env.FAL_KEY = "";
     process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
