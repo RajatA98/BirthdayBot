@@ -354,7 +354,7 @@ export function buildFalPrompt(
   const textDirection = buildTextDirection(draft, caption);
   const musicDirection = buildMusicDirection(draft);
   const partyDirection =
-    "Transform the scene into a lively birthday party backdrop: decorate it with colorful balloons, streamers, confetti bursts, cake candles, wrapped gifts, warm party lights, guests cheering in the background, and a joyful surprise reveal.";
+    "Transform the scene into a lively birthday party backdrop: decorate it with colorful balloons, streamers, confetti bursts, cake candles, wrapped gifts, warm party lights, and a joyful surprise reveal, but do not add guests, background people, extra faces, or anyone who is not already a subject in the uploaded photo.";
 
   const prompt = [
     "Create a short cinematic birthday party video and birthday celebration from the uploaded photo.",
@@ -363,7 +363,7 @@ export function buildFalPrompt(
     `User visual direction: ${userDirection}`,
     "Treat the user visual direction as the main creative direction for the generated video.",
     "Make it really fun and energetic, with playful reactions, celebratory camera movement, dancing party-light shimmer, confetti timed to the reveal, and a clear birthday-party background instead of a generic cinematic setting.",
-    "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
+    "Keep only the original photo subjects visible, with no added guests or crowd, and preserve their identity, facial features, clothing cues, and relationship shown in the source photo.",
     textDirection,
     musicDirection,
     `Concept: ${providerSafeText(plan.concept)}`,
@@ -580,6 +580,50 @@ type VoiceOverResult = {
   voiceOverError?: string;
 };
 
+export async function createAccountVoiceClone(input: {
+  voiceSampleName: string;
+  voiceSampleDataUrl: string;
+  voiceConsent: boolean;
+}) {
+  if (!input.voiceSampleDataUrl) {
+    throw new Error("A voice sample is required before cloning your voice.");
+  }
+
+  if (!input.voiceConsent) {
+    throw new Error("Confirm voice-cloning consent before submitting a voice sample.");
+  }
+
+  const apiKey = getServerEnv("ELEVENLABS_API_KEY") || getServerEnv("XI_API_KEY");
+
+  if (!apiKey) {
+    throw new Error("ELEVENLABS_API_KEY is required to clone the account voice.");
+  }
+
+  return createElevenLabsVoice(
+    {
+      mode: "simple",
+      birthdayName: "BirthdayBot",
+      prompt: "Create the reusable BirthdayBot account voice clone.",
+      photoName: "voice-placeholder.png",
+      photoDataUrl: "data:image/png;base64,",
+      voiceSampleName: input.voiceSampleName,
+      voiceSampleDataUrl: input.voiceSampleDataUrl,
+      voiceConsent: input.voiceConsent,
+      advanced: {
+        tone: "Heartfelt",
+        sceneIdea: "Birthday party",
+        videoLength: "15 seconds",
+        aspectRatio: "Portrait",
+        captionStyle: "Subtle",
+        musicVibe: "Uplifting",
+        motionIntensity: "Moderate",
+        agentGoalMode: "Surprise me"
+      }
+    },
+    apiKey
+  );
+}
+
 async function submitFalVideoJob(endpoint: string, input: FalVideoInput) {
   let lastSchemaError: unknown;
   const candidates = buildSubmitCandidates(endpoint, input);
@@ -785,6 +829,37 @@ async function createElevenLabsVoiceOver(
   }
 
   const draft = planRecord.draft;
+
+  if (draft.voiceCloneId) {
+    const apiKey = getServerEnv("ELEVENLABS_API_KEY") || getServerEnv("XI_API_KEY");
+
+    if (!apiKey) {
+      return {
+        providerVoiceId: draft.voiceCloneId,
+        voiceOverError:
+          "ELEVENLABS_API_KEY is required to generate a cloned voice-over."
+      };
+    }
+
+    try {
+      return {
+        providerVoiceId: draft.voiceCloneId,
+        voiceOverUrl: await createElevenLabsSpeech(
+          draft.voiceCloneId,
+          birthdayVoiceOverText(planRecord.caption),
+          apiKey
+        )
+      };
+    } catch (error) {
+      return {
+        providerVoiceId: draft.voiceCloneId,
+        voiceOverError:
+          error instanceof Error
+            ? error.message
+            : "ElevenLabs voice-over generation failed."
+      };
+    }
+  }
 
   if (!draft.voiceSampleDataUrl) {
     return {};
@@ -1063,7 +1138,7 @@ function muxFfmpegArgs({
     "-t",
     String(durationSeconds),
     "-filter_complex",
-    "[2:a:0]volume=0.14,apad[party_bed];[1:a:0]volume=1.45,acompressor=threshold=-20dB:ratio=3:attack=6:release=100,alimiter=limit=0.95,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
+    "[2:a:0]volume=0.08,apad[party_bed];[1:a:0]volume=1.45,acompressor=threshold=-20dB:ratio=3:attack=6:release=100,alimiter=limit=0.95,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
     "-map",
     "0:v:0",
     "-map",

@@ -3,6 +3,13 @@ import { JobRecord, PlanRecord } from "@/lib/types";
 type StoreState = {
   plans: Map<string, PlanRecord>;
   jobs: Map<string, JobRecord>;
+  voiceClone?: VoiceCloneRecord;
+};
+
+export type VoiceCloneRecord = {
+  providerVoiceId: string;
+  sampleName: string;
+  createdAt: number;
 };
 
 const store = getStore();
@@ -47,4 +54,12 @@ export function updateJob(jobId: string, updates: Partial<JobRecord>) {
   const next = { ...current, ...updates };
   jobStore.set(jobId, next);
   return next;
+}
+
+export function saveVoiceClone(record: VoiceCloneRecord) {
+  store.voiceClone = record;
+}
+
+export function getVoiceClone() {
+  return store.voiceClone;
 }

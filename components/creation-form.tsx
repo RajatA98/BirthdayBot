@@ -52,7 +52,20 @@ const aspectRatios = ["Portrait", "Square", "Landscape"] as const;
 const voiceSampleScript =
   "Happy birthday. I wanted this to feel more personal than a regular message, because you deserve something with a little sparkle in it. I am grateful for your laugh, your heart, and the way you make ordinary moments feel worth remembering. I hope this next year brings good surprises, real peace, and more reasons to celebrate who you are.";
 
-export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
+type ResultPayload = {
+  videoUrl: string;
+  caption: string;
+  birthdayName?: string;
+  voiceOverUrl?: string;
+};
+
+export function CreationForm({
+  api = studioApi,
+  onResult,
+}: {
+  api?: StudioApi;
+  onResult?: (result: ResultPayload) => void;
+}) {
   const [mode, setMode] = useState<"simple" | "advanced">("simple");
   const [birthdayName, setBirthdayName] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -161,11 +174,22 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
     return () => {
       cancelled = true;
-      if (timer) {
+      if (timer !== undefined) {
         clearTimeout(timer);
       }
     };
   }, [api, job?.jobId, phase]);
+
+  useEffect(() => {
+    if (phase === "result" && job?.videoUrl && onResult) {
+      onResult({
+        videoUrl: job.videoUrl,
+        caption,
+        birthdayName: plannedDraft?.birthdayName,
+        voiceOverUrl: job.voiceOverUrl,
+      });
+    }
+  }, [phase, job?.videoUrl, onResult, caption, plannedDraft?.birthdayName, job?.voiceOverUrl]);
 
   const summary = useMemo(() => {
     if (!prompt.trim()) {

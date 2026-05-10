@@ -53,6 +53,9 @@ describe("buildFalPrompt", () => {
     expect(prompt).toContain("confetti");
     expect(prompt).toContain("lively birthday party backdrop");
     expect(prompt).toContain("party lights");
+    expect(prompt).toContain("do not add guests");
+    expect(prompt).toContain("background people");
+    expect(prompt).toContain("extra faces");
     expect(prompt).toContain("Make it really fun and energetic");
     expect(prompt).toContain("Keep these cues from the photo: Faces; Clothing.");
   });
@@ -209,6 +212,8 @@ describe("buildFalInput", () => {
     expect(input.prompt).toContain("confetti");
     expect(input.prompt).toContain("cake candles");
     expect(input.prompt).toContain("party lights");
+    expect(input.prompt).toContain("do not add guests");
+    expect(input.prompt).toContain("extra faces");
     expect(input).not.toHaveProperty("multi_prompt");
     expect(input).not.toHaveProperty("shot_type");
   });
