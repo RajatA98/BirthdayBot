@@ -770,7 +770,13 @@ function StepPhoto({ draft, update }: { draft: Friend; update: (patch: Partial<F
   async function onPhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    update({ photo: true, photoName: file.name, photoDataUrl: await fileToDataUrl(file) });
+    const dataUrl = await fileToCompressedDataUrl(file);
+    update({
+      photo: true,
+      photoName: file.name,
+      photoDataUrl: dataUrl,
+      promptSuggestion: undefined
+    });
   }
 
   return (
@@ -2023,6 +2029,45 @@ function fileToDataUrl(file: Blob) {
     reader.onerror = () => reject(new Error("File read failed."));
     reader.readAsDataURL(file);
   });
+}
+
+const MAX_PHOTO_LONG_EDGE = 1600;
+const PHOTO_JPEG_QUALITY = 0.85;
+const SAFE_DATA_URL_BYTES = 3.6 * 1024 * 1024;
+
+async function fileToCompressedDataUrl(file: File): Promise<string> {
+  if (typeof window === "undefined") {
+    return fileToDataUrl(file);
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const longEdge = Math.max(bitmap.width, bitmap.height);
+    const scale = longEdge > MAX_PHOTO_LONG_EDGE ? MAX_PHOTO_LONG_EDGE / longEdge : 1;
+    const targetWidth = Math.round(bitmap.width * scale);
+    const targetHeight = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return fileToDataUrl(file);
+    }
+    ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+    bitmap.close();
+
+    let quality = PHOTO_JPEG_QUALITY;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > SAFE_DATA_URL_BYTES && quality > 0.5) {
+      quality -= 0.1;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+    return dataUrl;
+  } catch {
+    return fileToDataUrl(file);
+  }
 }
 
 function stopVoiceStream(stream: MediaStream | null) {
