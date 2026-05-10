@@ -204,7 +204,7 @@ describe("CreationForm", () => {
     expect(
       screen.getByText(/I wanted this to feel more personal/)
     ).toBeInTheDocument();
-    expect(screen.getByText("Aim for about 30 seconds in a quiet room.")).toBeInTheDocument();
+    expect(screen.getByText("Aim for about 12-15 seconds in a quiet room.")).toBeInTheDocument();
 
     await waitFor(() =>
       expect(

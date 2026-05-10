@@ -1,6 +1,6 @@
 import { fal } from "@fal-ai/client";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -25,9 +25,16 @@ const providerTimeoutMs = 6 * 60 * 1000;
 const defaultFalVideoModel = "fal-ai/kling-video/v3/standard/image-to-video";
 const elevenLabsBaseUrl = "https://api.elevenlabs.io/v1";
 const defaultElevenLabsTtsModel = "eleven_multilingual_v2";
+const partyMusicAssetPath = join(
+  process.cwd(),
+  "public",
+  "audio",
+  "party-music.mp3"
+);
 const falMaxUploadBytes = 10_485_760;
 const falTargetImageUploadBytes = 9_500_000;
-const maxMuxedVideoDurationSeconds = 10;
+const defaultVideoDurationSeconds = 15;
+const maxMuxedVideoDurationSeconds = 20;
 const finalVideoAudioBitrateKbps = 96;
 const finalVideoBitrateKbps = 4500;
 const execFileAsync = promisify(execFile);
@@ -436,19 +443,42 @@ function hasVoiceSample(draft: DraftRequest) {
 }
 
 function birthdayVoiceOverText(caption: string) {
-  const fallback = "Happy birthday. I hope your day feels as special as you are.";
-  const normalized = (caption || fallback)
-    .replace(/\s+/g, " ")
-    .replaceAll('"', "'")
-    .replace(/\.+$/g, "")
-    .trim();
-  const excited = `${normalized}! Happy birthday! Let's celebrate!`;
+  const fallback = "Happy birthday. I hope today makes you feel celebrated and loved.";
+  const cleanedScript = generatedNarrationScript(caption || fallback);
+  const shortScript = limitVoiceOverWords(cleanedScript);
 
-  if (excited.length <= 520) {
-    return excited;
+  if (shortScript.length <= 260) {
+    return shortScript;
   }
 
-  return `${normalized.slice(0, 517).trim()}!`;
+  return shortScript.slice(0, 257).trim();
+}
+
+function generatedNarrationScript(script: string) {
+  const withoutLabels = script
+    .replace(/\s+/g, " ")
+    .replaceAll('"', "'")
+    .replace(/^\s*(?:voice[\s-]?over|narration|script|caption)\s*:\s*/i, "")
+    .replace(/^\s*(?:um+|uh+|ah+|erm+|hmm+|okay|ok|testing|test|one two(?: three)?)[,.\s-]+/i, "")
+    .replace(/\.+$/g, ".")
+    .trim();
+  const birthdayStart = withoutLabels.search(/\bhappy birthday\b/i);
+
+  if (birthdayStart > 0 && birthdayStart <= 90) {
+    return withoutLabels.slice(birthdayStart).trim();
+  }
+
+  return withoutLabels || "Happy birthday. I hope today makes you feel celebrated and loved.";
+}
+
+function limitVoiceOverWords(text: string) {
+  const words = text.split(/\s+/).filter(Boolean);
+
+  if (words.length <= 34) {
+    return text;
+  }
+
+  return words.slice(0, 34).join(" ");
 }
 
 function birthdayTextLine(draft: DraftRequest, caption: string) {
@@ -476,9 +506,11 @@ function birthdayNameFromPrompt(prompt: string) {
 
 function targetVideoDurationSeconds(draft: DraftRequest) {
   const requested =
-    draft.mode === "advanced" ? draft.advanced.videoLength : "30 seconds";
+    draft.mode === "advanced"
+      ? draft.advanced.videoLength
+      : `${defaultVideoDurationSeconds} seconds`;
 
-  return Number(requested.match(/\d+/)?.[0] || "30");
+  return Number(requested.match(/\d+/)?.[0] || String(defaultVideoDurationSeconds));
 }
 
 function maxProviderDurationForEndpoint(endpoint: string) {
@@ -949,12 +981,18 @@ async function muxVoiceOverIntoVideo(
     await writeFile(inputVideo, video.bytes);
     await writeFile(inputVoice, voiceOver.bytes);
 
+    const muxDurationSeconds = await finalMuxedVideoDurationSeconds(
+      ffmpegBin,
+      inputVoice,
+      targetDurationSeconds
+    );
+
     await muxAndCompressVoiceOver({
       ffmpegBin,
       inputVideo,
       inputVoice,
       outputVideo,
-      durationSeconds: finalMuxedVideoDurationSeconds(targetDurationSeconds),
+      durationSeconds: muxDurationSeconds,
       videoBitrateKbps: finalVideoBitrateKbps
     });
 
@@ -985,12 +1023,15 @@ async function muxAndCompressVoiceOver({
   durationSeconds: number;
   videoBitrateKbps: number;
 }) {
+  const partyMusicInput = await partyMusicInputArgs();
+
   await execFileAsync(
     ffmpegBin,
     muxFfmpegArgs({
       inputVideo,
       inputVoice,
       outputVideo,
+      partyMusicInput,
       durationSeconds,
       videoBitrateKbps
     })
@@ -1001,12 +1042,14 @@ function muxFfmpegArgs({
   inputVideo,
   inputVoice,
   outputVideo,
+  partyMusicInput,
   durationSeconds,
   videoBitrateKbps
 }: {
   inputVideo: string;
   inputVoice: string;
   outputVideo: string;
+  partyMusicInput: string[];
   durationSeconds: number;
   videoBitrateKbps: number;
 }) {
@@ -1016,14 +1059,11 @@ function muxFfmpegArgs({
     inputVideo,
     "-i",
     inputVoice,
-    "-f",
-    "lavfi",
-    "-i",
-    partyMusicLavfiSource(),
+    ...partyMusicInput,
     "-t",
     String(durationSeconds),
     "-filter_complex",
-    "[2:a:0]volume=0.22,apad[party_bed];[1:a:0]volume=1.18,acompressor=threshold=-18dB:ratio=2.4:attack=8:release=90,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
+    "[2:a:0]volume=0.14,apad[party_bed];[1:a:0]volume=1.45,acompressor=threshold=-20dB:ratio=3:attack=6:release=100,alimiter=limit=0.95,apad[voice];[party_bed][voice]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
     "-map",
     "0:v:0",
     "-map",
@@ -1053,10 +1093,57 @@ function muxFfmpegArgs({
   ];
 }
 
-function finalMuxedVideoDurationSeconds(targetDurationSeconds: number) {
-  return Math.max(
-    1,
-    Math.min(targetDurationSeconds || maxMuxedVideoDurationSeconds, maxMuxedVideoDurationSeconds)
+async function partyMusicInputArgs() {
+  try {
+    await access(partyMusicAssetPath);
+    return ["-stream_loop", "-1", "-i", partyMusicAssetPath];
+  } catch {
+    return ["-f", "lavfi", "-i", partyMusicLavfiSource()];
+  }
+}
+
+async function finalMuxedVideoDurationSeconds(
+  ffmpegBin: string,
+  inputVoice: string,
+  targetDurationSeconds: number
+) {
+  const target = Math.max(1, targetDurationSeconds || defaultVideoDurationSeconds);
+  const voiceDuration = await audioDurationSeconds(ffmpegBin, inputVoice);
+  const neededForVoice = Math.ceil((voiceDuration || 0) + 0.75);
+
+  return Math.min(Math.max(target, neededForVoice), maxMuxedVideoDurationSeconds);
+}
+
+async function audioDurationSeconds(ffmpegBin: string, inputAudio: string) {
+  try {
+    const { stderr } = await execFileAsync(ffmpegBin, [
+      "-hide_banner",
+      "-i",
+      inputAudio
+    ]);
+
+    return durationSecondsFromFfmpegOutput(stderr);
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error
+        ? String((error as { stderr?: unknown }).stderr || "")
+        : "";
+
+    return durationSecondsFromFfmpegOutput(stderr);
+  }
+}
+
+function durationSecondsFromFfmpegOutput(output: string) {
+  const match = output.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  return (
+    Number(match[1]) * 3600 +
+    Number(match[2]) * 60 +
+    Number(match[3])
   );
 }
 

@@ -769,7 +769,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <span className="upload-meta">
             {recordingState === "recording"
               ? "Speak naturally and leave a tiny pause between sentences."
-              : "Aim for about 30 seconds in a quiet room."}
+              : "Aim for about 12-15 seconds in a quiet room."}
           </span>
         </div>
 
@@ -855,7 +855,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <SelectField
             label="Video length"
             value={advanced.videoLength}
-            options={["10 seconds", "15 seconds", "30 seconds"]}
+            options={["15 seconds", "10 seconds", "20 seconds"]}
             onChange={(value) =>
               setAdvanced((current) => ({ ...current, videoLength: value }))
             }

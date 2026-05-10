@@ -360,16 +360,60 @@ describe("startVideoGeneration voice-over", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/text-to-speech/eleven_voice_123?output_format=mp3_44100_128"
     );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      text: "Happy birthday, legend. Hope today feels cinematic."
+    });
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/voices/eleven_voice_123"
     );
     expect(result.providerVoiceId).toBe("eleven_voice_123");
     expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,AQID");
     expect(result.providerRequestId).toBe("fal_request_123");
-    expect(result.targetDurationSeconds).toBe(30);
+    expect(result.targetDurationSeconds).toBe(15);
     expect(falClient.submit).toHaveBeenCalledTimes(1);
     expect(planRecord.draft.voiceSampleDataUrl).toBeUndefined();
     expect(planRecord.draft.voiceConsent).toBeUndefined();
+  });
+
+  it("strips accidental filler before sending the generated script to ElevenLabs", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ voice_id: "eleven_voice_123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      )
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await startVideoGeneration(
+      {
+        ...makePlanRecord(
+          makeDraft({
+            voiceSampleName: "sample.wav",
+            voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+            voiceConsent: true
+          })
+        ),
+        caption:
+          "Voice-over: um, testing one two. Happy birthday Maya. You make every room brighter."
+      },
+      makeJob()
+    );
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      text: "Happy birthday Maya. You make every room brighter."
+    });
   });
 
   it("retries FAL submission with a minimal payload after a 422 schema rejection", async () => {

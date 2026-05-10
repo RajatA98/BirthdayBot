@@ -16,7 +16,7 @@ export function buildMockPlan(input: DraftRequest): AgentPlan {
     vibe: `${tone} with a polished, sendable emotional arc.`,
     sceneDirection: `Use ${sceneIdea.toLowerCase()} as the visual anchor while keeping the people recognizable.`,
     motionDirection: `${motion} camera motion with gentle reframing and birthday-moment energy.`,
-    captionApproach: "Write a polished 30-second birthday script that feels warm, direct, and easy to send.",
+    captionApproach: "Write a polished 12-15 second birthday script that feels warm, direct, and easy to send.",
     generationStrategy: "Start close to the original photo, then elevate it with cinematic motion and atmosphere.",
     keepFromPhoto: [
       "Facial identity and recognizable clothing cues",

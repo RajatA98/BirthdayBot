@@ -100,7 +100,7 @@ export async function generatePlanAndCaption(input: DraftRequest) {
     }
   });
 
-  const captionPrompt = `Write a polished birthday voice-over script for ${input.birthdayName || "the birthday person"} that matches this plan: ${JSON.stringify(plan)}. Make it warm, specific, sendable, and natural. Target about 30 seconds when read aloud, roughly 65-85 words. Return only the script text.`;
+  const captionPrompt = `Write a polished birthday voice-over script for ${input.birthdayName || "the birthday person"} that matches this plan: ${JSON.stringify(plan)}. Make it warm, specific, sendable, and natural. Target about 12-14 seconds when read aloud, roughly 28-38 words, so it fits comfortably in a 15-second video. Return only the script text.`;
   const captionGen = trace?.generation({
     name: "caption",
     model: captionModel,
