@@ -2024,7 +2024,7 @@ function blankFriend(): Friend {
     photo: false,
     color: "pink",
     message: "",
-    style: "sing-along",
+    style: "",
     delivery: "text"
   };
 }

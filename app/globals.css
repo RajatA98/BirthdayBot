@@ -403,6 +403,15 @@ svg {
   box-shadow: 0 18px 50px oklch(0.22 0.04 290 / 0.13);
 }
 
+.bb-postcard.is-preview {
+  max-height: min(70vh, 640px);
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+  align-self: center;
+  justify-self: center;
+}
+
 .bb-postcard-shade {
   position: absolute;
   inset: 0;
@@ -1518,8 +1527,25 @@ svg {
 }
 
 .bb-preview-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
   gap: 28px;
+  align-items: start;
+}
+
+.bb-preview-side .bb-sticker-button,
+.bb-preview-side button {
+  max-width: 100%;
+  white-space: normal;
+  word-break: normal;
+}
+
+@media (max-width: 880px) {
+  .bb-preview-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bb-postcard.is-preview {
+    max-height: min(60vh, 520px);
+  }
 }
 
 .bb-preview-side {
