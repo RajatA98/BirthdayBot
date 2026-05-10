@@ -835,6 +835,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     });
   }
 
+  function updatePlanField<K extends keyof AgentPlan>(
+    field: K,
+    value: AgentPlan[K]
+  ) {
+    setPlan((current) => (current ? { ...current, [field]: value } : current));
+  }
+
   function adjustSettings() {
     setPhase("draft");
     setStatusError("");
@@ -905,20 +912,62 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     return (
       <section className="review-stack">
         <section className="status-panel">
-          <p className="summary-label">Agent plan</p>
-          <h2>{plan.title}</h2>
-          <p>{plan.concept}</p>
+          <p className="summary-label">Agent plan — everything below is editable</p>
+          <input
+            className="editable-plan-title"
+            value={plan.title}
+            onChange={(event) => updatePlanField("title", event.target.value)}
+            aria-label="Plan title"
+          />
+          <textarea
+            className="editable-plan-input"
+            value={plan.concept}
+            rows={2}
+            onChange={(event) => updatePlanField("concept", event.target.value)}
+            aria-label="Plan concept"
+          />
         </section>
 
-        <PlanCard label="Vibe" value={plan.vibe} />
-        <PlanCard label="Scene direction" value={plan.sceneDirection} />
-        <PlanCard label="Motion direction" value={plan.motionDirection} />
-        <PlanCard label="Generation strategy" value={plan.generationStrategy} />
+        <EditablePlanField
+          label="Vibe"
+          value={plan.vibe}
+          onChange={(v) => updatePlanField("vibe", v)}
+        />
+        <EditablePlanField
+          label="Scene direction"
+          value={plan.sceneDirection}
+          onChange={(v) => updatePlanField("sceneDirection", v)}
+          rows={3}
+        />
+        <EditablePlanField
+          label="Motion direction"
+          value={plan.motionDirection}
+          onChange={(v) => updatePlanField("motionDirection", v)}
+        />
+        <EditablePlanField
+          label="Generation strategy"
+          value={plan.generationStrategy}
+          onChange={(v) => updatePlanField("generationStrategy", v)}
+        />
+        <EditablePlanField
+          label="Surprise factor"
+          value={plan.surpriseFactor}
+          onChange={(v) => updatePlanField("surpriseFactor", v)}
+        />
+        <EditablePlanList
+          label="Keep from photo"
+          items={plan.keepFromPhoto}
+          onChange={(items) => updatePlanField("keepFromPhoto", items)}
+          helper="One cue per line — the things the model must keep from the source photo."
+        />
+        <EditablePlanField
+          label="Caption approach"
+          value={plan.captionApproach}
+          onChange={(v) => updatePlanField("captionApproach", v)}
+        />
         <PlanCard label="Subject count" value={String(plan.subjectCount)} />
-        <PlanList label="Keep from photo" items={plan.keepFromPhoto} />
         <PlanList label="Identity anchors" items={plan.identityAnchors} />
         <PlanList label="Scene guardrails" items={plan.sceneGuardrails} />
-        <PlanCard label="Caption approach" value={plan.captionApproach} />
 
         <section className="summary-card editable-caption">
           <div className="editable-caption-header">
@@ -1805,6 +1854,66 @@ function PlanList({ label, items }: { label: string; items?: string[] }) {
           <li key={item}>{item}</li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function EditablePlanField({
+  label,
+  value,
+  onChange,
+  rows = 2,
+  ariaLabel
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+  ariaLabel?: string;
+}) {
+  return (
+    <section className="summary-card editable-plan-card">
+      <p className="summary-label">{label}</p>
+      <textarea
+        className="editable-plan-input"
+        value={value}
+        rows={rows}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={ariaLabel || label}
+      />
+    </section>
+  );
+}
+
+function EditablePlanList({
+  label,
+  items,
+  onChange,
+  helper
+}: {
+  label: string;
+  items: string[];
+  onChange: (items: string[]) => void;
+  helper?: string;
+}) {
+  return (
+    <section className="summary-card editable-plan-card">
+      <p className="summary-label">{label}</p>
+      <textarea
+        className="editable-plan-input"
+        value={items.join("\n")}
+        rows={Math.max(2, items.length)}
+        onChange={(event) =>
+          onChange(
+            event.target.value
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          )
+        }
+        aria-label={`${label} (one per line)`}
+      />
+      <p className="subtle-note">{helper || "One item per line."}</p>
     </section>
   );
 }

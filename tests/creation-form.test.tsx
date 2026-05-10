@@ -147,10 +147,12 @@ describe("CreationForm", () => {
     await user.click(screen.getByRole("button", { name: "Build my birthday brief" }));
 
     await waitFor(() =>
-      expect(screen.getByText("Agent plan")).toBeInTheDocument()
+      expect(screen.getByText(/Agent plan/i)).toBeInTheDocument()
     );
     expect(createPlan).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Heartfelt birthday reveal")).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("Heartfelt birthday reveal")
+    ).toBeInTheDocument();
     expect(screen.getByText("Birthday message")).toBeInTheDocument();
     expect(
       screen.getByLabelText("Editable birthday message")
@@ -516,7 +518,7 @@ describe("CreationForm", () => {
     await waitFor(() =>
       expect(screen.getByText("Generation provider is unavailable.")).toBeInTheDocument()
     );
-    expect(screen.getByText("Agent plan")).toBeInTheDocument();
+    expect(screen.getByText(/Agent plan/i)).toBeInTheDocument();
   });
 
   it("shows copy feedback after copying the caption", async () => {

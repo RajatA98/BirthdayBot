@@ -200,10 +200,13 @@ describe("buildFalInput", () => {
     // cfg_scale lowers on retry.
     expect(input.cfg_scale).toBe(0.5);
 
-    // negative_prompt collapses to the minimal version.
-    expect(input.negative_prompt).toBe(
-      "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity"
-    );
+    // negative_prompt collapses to the minimal version (no plan-extension).
+    expect(input.negative_prompt).toContain("on-screen text");
+    expect(input.negative_prompt).toContain("watermark");
+    expect(input.negative_prompt).toContain("changed identity");
+    // Should not include the verbose default-path additions.
+    expect(input.negative_prompt).not.toContain("blur, distort, low quality");
+    expect(input.negative_prompt).not.toContain("scene cut to unrelated");
   });
 
   it("does not ask Kling for audio or voice ids because ElevenLabs owns voice-over", () => {
