@@ -67,7 +67,7 @@ export async function analyzePhoto(input: DraftRequest): Promise<PhotoAnalysis> 
             {
               type: "input_image",
               image_url: input.photoDataUrl,
-              detail: "auto"
+              detail: "low"
             }
           ]
         }
