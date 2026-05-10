@@ -68,6 +68,12 @@ export type JobStage =
   | "completed"
   | "failed";
 
+export type JobLogEntry = {
+  message: string;
+  timestamp: number;
+  source?: "provider" | "system";
+};
+
 export type JobRecord = {
   jobId: string;
   requestId: string;
@@ -84,6 +90,7 @@ export type JobRecord = {
   providerVoiceId?: string;
   targetDurationSeconds?: number;
   voiceOverError?: string;
+  logs?: JobLogEntry[];
   createdAt: number;
 };
 

@@ -679,6 +679,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <p className="subtle-note">Automatic retry attempt {job.attempts} is in progress.</p>
         ) : null}
         <ProgressRail stage={job.stage} />
+        <ProgressLog logs={job.logs || []} />
       </section>
     );
   }
@@ -1300,6 +1301,47 @@ function ProgressRail({ stage }: { stage: JobRecord["stage"] }) {
       ))}
     </ol>
   );
+}
+
+function ProgressLog({
+  logs
+}: {
+  logs: NonNullable<JobRecord["logs"]>;
+}) {
+  if (!logs || logs.length === 0) {
+    return null;
+  }
+
+  const visibleLogs = logs.slice(-6);
+
+  return (
+    <ul className="progress-log" aria-label="Live generation log">
+      {visibleLogs.map((entry) => (
+        <li
+          key={`${entry.timestamp}-${entry.message}`}
+          className={`progress-log-entry ${entry.source ?? "provider"}`}
+        >
+          <span className="progress-log-time">
+            {formatLogTime(entry.timestamp)}
+          </span>
+          <span className="progress-log-message">{entry.message}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function formatLogTime(timestamp: number) {
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  } catch {
+    return "";
+  }
 }
 
 function stageHeading(stage: JobRecord["stage"]) {

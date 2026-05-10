@@ -102,13 +102,45 @@ export async function startVideoGenerationTool(
   });
   await langfuse?.flushAsync?.();
 
+  const seededLogs = [
+    {
+      message: "Brief approved. Spinning up the production crew.",
+      timestamp: photoStartedAt,
+      source: "system" as const
+    },
+    voiceOver.voiceOverUrl
+      ? {
+          message: "Voice clone is locked in.",
+          timestamp: Date.now(),
+          source: "system" as const
+        }
+      : undefined,
+    musicBedUrl
+      ? {
+          message: "Custom music bed composed.",
+          timestamp: Date.now(),
+          source: "system" as const
+        }
+      : undefined,
+    {
+      message: "Director's brief sent to the video model.",
+      timestamp: Date.now(),
+      source: "system" as const
+    }
+  ].filter(Boolean) as Array<{
+    message: string;
+    timestamp: number;
+    source: "system";
+  }>;
+
   return {
     ...job,
     ...voiceOver,
     musicBedUrl,
     providerRequestId: result.request_id,
     providerEndpoint: endpoint,
-    targetDurationSeconds
+    targetDurationSeconds,
+    logs: seededLogs
   };
 }
 

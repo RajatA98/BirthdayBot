@@ -2,7 +2,9 @@ import { fal } from "@fal-ai/client";
 
 import { getServerEnv } from "@/lib/server-env";
 import { muxVoiceOverIntoVideo } from "@/lib/tools/mux-voice-over";
-import { JobRecord, JobStage } from "@/lib/types";
+import { JobLogEntry, JobRecord, JobStage } from "@/lib/types";
+
+const maxRetainedLogs = 40;
 
 const stageMessages: Record<JobStage, string> = {
   queued: "Queued and preparing the creative brief.",
@@ -106,19 +108,22 @@ export async function checkVideoGenerationTool(job: JobRecord) {
     }
 
     if (providerStatus === "IN_PROGRESS") {
-      const logs = getStatusLogs(status);
-      const providerStage = inferProviderStage(logs);
+      const rawLogs = getStatusLogs(status);
+      const providerStage = inferProviderStage(rawLogs);
+      const mergedLogs = mergeJobLogs(job.logs, rawLogs);
       return {
         stage: providerStage,
         statusMessage:
-          logs?.at(-1)?.message || stageMessages[providerStage]
+          rawLogs?.at(-1)?.message || stageMessages[providerStage],
+        logs: mergedLogs
       };
     }
 
     if (providerStatus === "IN_QUEUE") {
       return {
         stage: "queued" as const,
-        statusMessage: stageMessages.queued
+        statusMessage: stageMessages.queued,
+        logs: job.logs
       };
     }
 
@@ -210,6 +215,42 @@ function getStatusLogs(status: unknown) {
 
   const candidate = (status as { logs?: Array<{ message?: string }> }).logs;
   return Array.isArray(candidate) ? candidate : undefined;
+}
+
+function mergeJobLogs(
+  existing: JobLogEntry[] | undefined,
+  fresh: Array<{ message?: string; timestamp?: string | number }> | undefined
+): JobLogEntry[] {
+  const merged: JobLogEntry[] = existing ? [...existing] : [];
+  const seen = new Set(merged.map((entry) => entry.message));
+
+  for (const entry of fresh || []) {
+    const message = entry.message?.trim();
+    if (!message || seen.has(message)) continue;
+    seen.add(message);
+    merged.push({
+      message,
+      timestamp: parseLogTimestamp(entry.timestamp) ?? Date.now(),
+      source: "provider"
+    });
+  }
+
+  if (merged.length > maxRetainedLogs) {
+    return merged.slice(merged.length - maxRetainedLogs);
+  }
+
+  return merged;
+}
+
+function parseLogTimestamp(value: string | number | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function extractVideoUrl(data: unknown) {
