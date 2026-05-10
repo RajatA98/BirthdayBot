@@ -3394,3 +3394,371 @@ input[type="file"] {
   width: 100%;
   margin: 0;
 }
+
+/* ========================================================== */
+/* Re-skin the creation flow with the dashboard bb-* tokens.    */
+/* The legacy CSS rules under `.creation-form`, `.voice-*`, etc */
+/* read the legacy custom properties (--background, --card,     */
+/* --accent, etc.) — redefining them inside .bb-creation-shell  */
+/* makes the entire flow inherit the dashboard palette without  */
+/* touching every individual rule.                              */
+/* ========================================================== */
+.bb-creation-shell {
+  /* Map legacy tokens onto the bb-* design system */
+  --background: var(--bb-bg);
+  --card: var(--bb-paper);
+  --card-strong: var(--bb-paper);
+  --text: var(--bb-ink);
+  --muted: var(--bb-ink-soft);
+  --line: var(--bb-border);
+  --accent: var(--bb-pink);
+  --accent-strong: var(--bb-pink-ink);
+  --accent-soft: oklch(0.95 0.05 12);
+  --success: oklch(0.62 0.15 150);
+  --shadow: 0 3px 0 var(--bb-pink-ink);
+  --radius-xl: 22px;
+  --radius-lg: 14px;
+
+  background: var(--bb-bg);
+  color: var(--bb-ink);
+  font-family: var(--bb-body);
+}
+
+.bb-creation-shell .hero-card {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border);
+  box-shadow: none;
+  border-radius: 18px;
+  padding: 28px;
+}
+
+.bb-creation-shell .eyebrow,
+.bb-creation-shell .summary-label,
+.bb-creation-shell .upload-title {
+  font-family: var(--bb-mono);
+  font-weight: 700;
+  letter-spacing: 0;
+  font-size: 11px;
+  color: var(--bb-pink-ink);
+}
+
+.bb-creation-shell h1,
+.bb-creation-shell h2,
+.bb-creation-shell h3,
+.bb-creation-shell .editable-plan-title {
+  font-family: var(--bb-display);
+  letter-spacing: 0.005em;
+}
+
+.bb-creation-shell .lede,
+.bb-creation-shell p,
+.bb-creation-shell .upload-copy,
+.bb-creation-shell .upload-meta,
+.bb-creation-shell .subtle-note {
+  font-family: var(--bb-body);
+}
+
+.bb-creation-shell input:not([type="file"]):not([type="checkbox"]),
+.bb-creation-shell textarea,
+.bb-creation-shell select {
+  font-family: var(--bb-body);
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border-strong);
+  border-radius: 12px;
+  color: var(--bb-ink);
+}
+
+.bb-creation-shell input:not([type="file"]):not([type="checkbox"]):focus,
+.bb-creation-shell textarea:focus,
+.bb-creation-shell select:focus {
+  outline: 2px solid oklch(0.7 0.22 12 / 0.4);
+  outline-offset: 2px;
+  border-color: var(--bb-pink);
+}
+
+/* Mode toggle (Simple / Advanced) — sticker-style pills */
+.bb-creation-shell .mode-pill {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border-strong);
+  color: var(--bb-ink);
+  border-radius: 12px;
+  font-weight: 700;
+  box-shadow: none;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.bb-creation-shell .mode-pill.active {
+  background: var(--bb-pink);
+  color: white;
+  border-color: var(--bb-pink);
+  box-shadow: 0 3px 0 var(--bb-pink-ink);
+}
+
+/* Primary action = sticker button */
+.bb-creation-shell .primary-action {
+  background: var(--bb-pink);
+  color: white;
+  border-radius: 12px;
+  box-shadow: 0 3px 0 var(--bb-pink-ink);
+  font-weight: 700;
+  font-family: var(--bb-body);
+  padding: 13px 18px;
+  min-height: 48px;
+  background-image: none;
+}
+
+.bb-creation-shell .primary-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 var(--bb-pink-ink);
+}
+
+.bb-creation-shell .primary-action:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--bb-pink-ink);
+}
+
+.bb-creation-shell .primary-action:disabled {
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Ghost / link actions = outline buttons */
+.bb-creation-shell .ghost-action,
+.bb-creation-shell .link-action {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border-strong);
+  color: var(--bb-ink);
+  border-radius: 12px;
+  font-weight: 700;
+  font-family: var(--bb-body);
+  padding: 12px 16px;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.bb-creation-shell .ghost-action:hover {
+  background: oklch(0.22 0.04 290 / 0.04);
+  transform: none;
+}
+
+/* Cards (summary / status / upload / voice / message) */
+.bb-creation-shell .upload-card,
+.bb-creation-shell .summary-card,
+.bb-creation-shell .status-panel,
+.bb-creation-shell .voice-recorder,
+.bb-creation-shell .voice-mode-card,
+.bb-creation-shell .voice-message-card,
+.bb-creation-shell .editable-plan-card {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border);
+  border-radius: 16px;
+}
+
+.bb-creation-shell .upload-card {
+  border-style: dashed;
+  border-color: var(--bb-border-strong);
+  background: var(--bb-bg);
+  background-image: none;
+}
+
+.bb-creation-shell .upload-card.dragging {
+  border-color: var(--bb-pink);
+  background: oklch(0.95 0.05 12);
+  background-image: none;
+}
+
+.bb-creation-shell .upload-icon {
+  background: oklch(0.95 0.05 12);
+  border: 1px solid oklch(0.7 0.22 12 / 0.25);
+  color: var(--bb-pink-ink);
+}
+
+/* Voice mode / song style chips — dashboard-aesthetic */
+.bb-creation-shell .voice-mode-pill {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border-strong);
+  border-radius: 12px;
+}
+
+.bb-creation-shell .voice-mode-pill.active {
+  background: oklch(0.95 0.05 12);
+  border-color: var(--bb-pink);
+  color: var(--bb-ink);
+}
+
+.bb-creation-shell .voice-mode-pill strong {
+  color: var(--bb-ink);
+}
+
+.bb-creation-shell .voice-mode-pill span {
+  color: var(--bb-ink-soft);
+}
+
+.bb-creation-shell .song-style-chip {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border-strong);
+  color: var(--bb-ink);
+  border-radius: 999px;
+  font-family: var(--bb-body);
+}
+
+.bb-creation-shell .song-style-chip.active {
+  background: var(--bb-pink);
+  border-color: var(--bb-pink);
+  color: white;
+  box-shadow: 0 2px 0 var(--bb-pink-ink);
+}
+
+/* Recording badge / quality hints */
+.bb-creation-shell .recording-badge {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border-strong);
+  color: var(--bb-ink-soft);
+  border-radius: 999px;
+  font-family: var(--bb-mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.bb-creation-shell .recording-badge.live {
+  background: oklch(0.95 0.05 12);
+  border-color: var(--bb-pink);
+  color: var(--bb-pink-ink);
+}
+
+.bb-creation-shell .voice-quality-tip,
+.bb-creation-shell .voice-take-hint-warn {
+  background: oklch(0.95 0.05 12);
+  border: 1px solid oklch(0.7 0.22 12 / 0.3);
+  color: var(--bb-pink-ink);
+  border-radius: 12px;
+}
+
+.bb-creation-shell .voice-clip-item {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border);
+  border-radius: 12px;
+}
+
+/* Progress rail + log during generation */
+.bb-creation-shell .progress-rail li {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border);
+  border-radius: 12px;
+  color: var(--bb-ink-soft);
+}
+
+.bb-creation-shell .progress-rail li.done {
+  background: oklch(0.95 0.05 12);
+  border-color: var(--bb-pink);
+  color: var(--bb-ink);
+}
+
+.bb-creation-shell .progress-log {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border);
+  border-radius: 14px;
+}
+
+.bb-creation-shell .progress-log-entry.system .progress-log-message {
+  color: var(--bb-pink-ink);
+}
+
+/* Result / completion */
+.bb-creation-shell .ai-badge {
+  background: oklch(0.95 0.05 12);
+  color: var(--bb-pink-ink);
+  border-radius: 999px;
+  font-family: var(--bb-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.bb-creation-shell .video-caption-title,
+.bb-creation-shell .video-caption-message {
+  background: linear-gradient(110deg, var(--bb-yellow), var(--bb-coral), var(--bb-pink));
+  background-size: 220% 100%;
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bb-creation-shell .result-video-frame,
+.bb-creation-shell .result-video {
+  background: oklch(0.18 0.02 290);
+}
+
+/* Field error */
+.bb-creation-shell .field-error {
+  color: oklch(0.55 0.2 25);
+}
+
+/* Voice consent fieldset */
+.bb-creation-shell .voice-consent-group {
+  background: var(--bb-paper);
+  border: 1px solid var(--bb-border);
+  border-radius: 14px;
+}
+
+.bb-creation-shell .voice-consent-group legend {
+  color: var(--bb-pink-ink);
+  font-family: var(--bb-mono);
+  letter-spacing: 0;
+}
+
+/* The page background should match the dashboard, not the cream */
+/* warm-paper of the legacy hero card.                            */
+.bb-creation-shell {
+  background: var(--bb-bg);
+}
+
+/* The whole legacy html background gradient was painted on <html>; */
+/* we only want the dashboard's flat bg inside the creation flow.   */
+.bb-creation-shell .app-shell {
+  background: transparent;
+}
+
+/* ========================================================== */
+/* Final cascade: restore dashboard globals after the legacy    */
+/* block leaked html / body / :root overrides. The legacy rules */
+/* still apply inside .bb-creation-shell via the var-mapping    */
+/* above; everywhere else gets the dashboard's bb-* tokens.     */
+/* ========================================================== */
+:root {
+  color-scheme: light;
+  --bb-bg: oklch(0.97 0.012 75);
+  --bb-paper: #ffffff;
+  --bb-ink: oklch(0.22 0.04 290);
+  --bb-ink-soft: oklch(0.22 0.04 290 / 0.62);
+  --bb-ink-lite: oklch(0.22 0.04 290 / 0.32);
+  --bb-pink: oklch(0.7 0.22 12);
+  --bb-pink-ink: oklch(0.36 0.16 12);
+  --bb-yellow: oklch(0.91 0.16 95);
+  --bb-lime: oklch(0.88 0.18 130);
+  --bb-lavender: oklch(0.78 0.13 305);
+  --bb-coral: oklch(0.78 0.17 35);
+  --bb-border: oklch(0.22 0.04 290 / 0.09);
+  --bb-border-strong: oklch(0.22 0.04 290 / 0.18);
+  --bb-display: "Arial Rounded MT Bold", "Avenir Next", system-ui, sans-serif;
+  --bb-body: "Avenir Next", Inter, ui-sans-serif, system-ui, sans-serif;
+  --bb-mono: "SFMono-Regular", "Roboto Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+  background: var(--bb-bg);
+  color: var(--bb-ink);
+  font-family: var(--bb-body);
+  min-height: 100vh;
+}
+
+html {
+  background-image: none;
+}
