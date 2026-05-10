@@ -9,7 +9,7 @@
 The product is built as a bounded agent workflow rather than a free-form chatbot. The backend analyzes the uploaded photo, creates a director-style generation plan, starts an async `fal` video job, monitors progress, muxes voice + music with `ffmpeg`, and returns a result the user can preview and download.
 
 **Live deploy:** <https://birthdaybot-five.vercel.app>
-**Latest commit on `main`:** [`780522c`](https://github.com/RajatA98/BirthdayBot/commit/780522c) — `Compress photos client-side to dodge Vercel 4 MB body limit`
+**Latest commit on `main`:** [`4dca0f2`](https://github.com/RajatA98/BirthdayBot/commit/4dca0f2) — `Recompress already-cached photos before /api/plan + /api/suggest-prompt`
 
 ## Current Flow
 
@@ -172,6 +172,6 @@ vercel ls
 Project handoff and branch updates live in:
 
 - [ops/HANDOFF_2026-05-09.md](./ops/HANDOFF_2026-05-09.md)
-- [ops/updates](./ops/updates) — most recent: [`2026-05-10--main--780522c.md`](./ops/updates/2026-05-10--main--780522c.md). **If you are an AI agent picking this project up, read that file first.**
+- [ops/updates](./ops/updates) — most recent: [`2026-05-10--main--4dca0f2.md`](./ops/updates/2026-05-10--main--4dca0f2.md). **If you are an AI agent picking this project up, read that file first.**
 
 Pre-push hook (installed via [scripts/install-git-hooks.sh](./scripts/install-git-hooks.sh)) auto-stages a new ops update on push and blocks empty templates — fill in Summary / Blockers / Next Context before re-pushing.

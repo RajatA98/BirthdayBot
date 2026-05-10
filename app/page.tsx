@@ -539,7 +539,12 @@ function Wizard({
     setBriefLoading(true);
     setBriefError("");
     try {
-      const requestDraft = buildSimpleDraftRequest(draft, voiceClone);
+      const safePhoto = await ensureSafePhotoDataUrl(draft.photoDataUrl);
+      if (safePhoto !== draft.photoDataUrl) {
+        update({ photoDataUrl: safePhoto });
+      }
+      const safeDraft = { ...draft, photoDataUrl: safePhoto };
+      const requestDraft = buildSimpleDraftRequest(safeDraft, voiceClone);
       const planRecord = await studioApi.createPlan(requestDraft);
       setBriefDraft(requestDraft);
       setBriefPlan(planRecord.plan);
@@ -870,8 +875,12 @@ function StepPrompt({
     setSuggestLoading(true);
     setSuggestError("");
     try {
+      const safePhoto = await ensureSafePhotoDataUrl(draft.photoDataUrl);
+      if (safePhoto !== draft.photoDataUrl) {
+        update({ photoDataUrl: safePhoto });
+      }
       const result = await studioApi.suggestPrompt({
-        photoDataUrl: draft.photoDataUrl,
+        photoDataUrl: safePhoto,
         photoName: draft.photoName,
         birthdayName: draft.firstName || draft.name
       });
@@ -2042,32 +2051,53 @@ async function fileToCompressedDataUrl(file: File): Promise<string> {
 
   try {
     const bitmap = await createImageBitmap(file);
-    const longEdge = Math.max(bitmap.width, bitmap.height);
-    const scale = longEdge > MAX_PHOTO_LONG_EDGE ? MAX_PHOTO_LONG_EDGE / longEdge : 1;
-    const targetWidth = Math.round(bitmap.width * scale);
-    const targetHeight = Math.round(bitmap.height * scale);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      bitmap.close();
-      return fileToDataUrl(file);
-    }
-    ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
-    bitmap.close();
-
-    let quality = PHOTO_JPEG_QUALITY;
-    let dataUrl = canvas.toDataURL("image/jpeg", quality);
-    while (dataUrl.length > SAFE_DATA_URL_BYTES && quality > 0.5) {
-      quality -= 0.1;
-      dataUrl = canvas.toDataURL("image/jpeg", quality);
-    }
-    return dataUrl;
+    return compressBitmap(bitmap);
   } catch {
     return fileToDataUrl(file);
   }
+}
+
+async function ensureSafePhotoDataUrl(dataUrl: string): Promise<string> {
+  if (typeof window === "undefined") {
+    return dataUrl;
+  }
+  if (dataUrl.length <= SAFE_DATA_URL_BYTES) {
+    return dataUrl;
+  }
+
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    return compressBitmap(bitmap);
+  } catch {
+    return dataUrl;
+  }
+}
+
+function compressBitmap(bitmap: ImageBitmap): string {
+  const longEdge = Math.max(bitmap.width, bitmap.height);
+  const scale = longEdge > MAX_PHOTO_LONG_EDGE ? MAX_PHOTO_LONG_EDGE / longEdge : 1;
+  const targetWidth = Math.round(bitmap.width * scale);
+  const targetHeight = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Canvas 2D context unavailable.");
+  }
+  ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+  bitmap.close();
+
+  let quality = PHOTO_JPEG_QUALITY;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > SAFE_DATA_URL_BYTES && quality > 0.5) {
+    quality -= 0.1;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+  return dataUrl;
 }
 
 function stopVoiceStream(stream: MediaStream | null) {
