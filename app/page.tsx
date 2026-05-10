@@ -36,6 +36,16 @@ type Friend = {
   message: string;
   style: "sing-along" | "lip-sync" | "serenade" | "";
   delivery: "text" | "email" | "link";
+  email?: string;
+  accents?: string[];
+  accentsOther?: string;
+  vibe?: string;
+  vibeOther?: string;
+  setting?: string;
+  settingOther?: string;
+  musicGenre?: string;
+  musicGenreOther?: string;
+  promptSuggestion?: string;
 };
 
 type VoiceCloneState = {
@@ -254,7 +264,13 @@ function Sidebar({
         </span>
       </button>
 
-      <button className="bb-sticker-button" onClick={() => setView({ name: "wizard", step: 0, friend: blankFriend() })}>
+      <button
+        className="bb-sticker-button"
+        onClick={() => {
+          clearWizardSnapshot();
+          setView({ name: "wizard", step: 0, friend: blankFriend() });
+        }}
+      >
         <Icon name="plus" /> New birthday video
       </button>
 
@@ -317,14 +333,22 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
         <HeroPreview
           friend={hero}
           onOpen={() => setView({ name: "detail", id: hero.id })}
-          onEdit={() => setView({ name: "wizard", step: 2, friend: hero })}
+          onEdit={() => {
+            clearWizardSnapshot();
+            setView({ name: "wizard", step: 2, friend: hero });
+          }}
         />
 
         <section className="bb-section">
           <SectionHead label="Also this week" count={2} />
           <div className="bb-this-week-grid">
             <FeaturedCard friend={friends[1]} onClick={() => setView({ name: "detail", id: friends[1].id })} />
-            <NudgeCard onClick={() => setView({ name: "wizard", step: 0, friend: blankFriend() })} />
+            <NudgeCard
+              onClick={() => {
+                clearWizardSnapshot();
+                setView({ name: "wizard", step: 0, friend: blankFriend() });
+              }}
+            />
           </div>
         </section>
 
@@ -531,23 +555,50 @@ function Wizard({
   const [briefDraft, setBriefDraft] = useState<DraftRequest | null>(null);
   const [briefError, setBriefError] = useState("");
   const [briefLoading, setBriefLoading] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const step = view.step;
+
+  // sessionStorage hydration: when the user reloads mid-flow, pick the
+  // wizard up where they left off. 2-hour TTL; stale snapshots are
+  // dropped silently. Only runs once on mount.
+  useEffect(() => {
+    const snapshot = readWizardSnapshot();
+    if (snapshot) {
+      if (snapshot.draft) setDraft(snapshot.draft);
+      if (snapshot.briefPlan) setBriefPlan(snapshot.briefPlan);
+      if (snapshot.briefCaption) setBriefCaption(snapshot.briefCaption);
+      if (snapshot.briefRequestId) setBriefRequestId(snapshot.briefRequestId);
+      if (snapshot.briefDraft) setBriefDraft(snapshot.briefDraft);
+      if (snapshot.generation) setGeneration(snapshot.generation);
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persist on every meaningful change. SessionStorage quota errors are
+  // swallowed silently — live in-memory flow keeps working.
+  useEffect(() => {
+    if (!hydrated) return;
+    writeWizardSnapshot({
+      draft,
+      briefPlan,
+      briefCaption,
+      briefRequestId,
+      briefDraft,
+      generation
+    });
+  }, [hydrated, draft, briefPlan, briefCaption, briefRequestId, briefDraft, generation]);
 
   useEffect(() => {
     if (!generating) {
       return;
     }
 
+    // Cosmetic progress bar only — caps at 92% and waits for the real
+    // job to finish before allowing 100%. The actual generating flag
+    // is flipped off in handleJob's terminal branch (or in the catch).
     const timer = window.setInterval(() => {
-      setProgress((current) => {
-        const next = Math.min(100, current + 7);
-        if (next === 100) {
-          window.clearInterval(timer);
-          window.setTimeout(() => setGenerating(false), 350);
-        }
-        return next;
-      });
-    }, 220);
+      setProgress((current) => Math.min(92, current + 5));
+    }, 280);
 
     return () => window.clearInterval(timer);
   }, [generating]);
@@ -579,7 +630,12 @@ function Wizard({
     setBriefLoading(true);
     setBriefError("");
     try {
-      const requestDraft = buildSimpleDraftRequest(draft, voiceClone);
+      const safePhoto = await ensureSafePhotoDataUrl(draft.photoDataUrl);
+      if (safePhoto !== draft.photoDataUrl) {
+        update({ photoDataUrl: safePhoto });
+      }
+      const safeDraft = { ...draft, photoDataUrl: safePhoto };
+      const requestDraft = buildSimpleDraftRequest(safeDraft, voiceClone);
       const planRecord = await studioApi.createPlan(requestDraft);
       setBriefDraft(requestDraft);
       setBriefPlan(planRecord.plan);
@@ -605,6 +661,8 @@ function Wizard({
     }
 
     try {
+      setProgress(0);
+      setGenerating(true);
       setGeneration({
         phase: "planning",
         message: "Sending the brief to the video model."
@@ -638,6 +696,8 @@ function Wizard({
           );
         }
 
+        const isTerminal = job.stage === "completed" || job.stage === "failed";
+
         setGeneration({
           phase: job.stage === "completed" ? "completed" : job.stage === "failed" ? "failed" : "generating",
           message: job.statusMessage,
@@ -649,6 +709,11 @@ function Wizard({
           voiceOverUrl: job.voiceOverUrl,
           error: job.error || job.voiceOverError
         });
+
+        if (isTerminal) {
+          setProgress(100);
+          setGenerating(false);
+        }
       };
 
       handleJob(generationJob);
@@ -657,6 +722,7 @@ function Wizard({
         await pollGenerationJob(generationJob, planRecord, handleJob);
       }
     } catch (error) {
+      setGenerating(false);
       setGeneration({
         phase: "failed",
         message: "Video generation could not be started.",
@@ -810,7 +876,13 @@ function StepPhoto({ draft, update }: { draft: Friend; update: (patch: Partial<F
   async function onPhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    update({ photo: true, photoName: file.name, photoDataUrl: await fileToDataUrl(file) });
+    const dataUrl = await fileToCompressedDataUrl(file);
+    update({
+      photo: true,
+      photoName: file.name,
+      photoDataUrl: dataUrl,
+      promptSuggestion: undefined
+    });
   }
 
   return (
@@ -854,6 +926,34 @@ function StepPhoto({ draft, update }: { draft: Friend; update: (patch: Partial<F
   );
 }
 
+const accentChips = [
+  "Cake & candles",
+  "Balloons",
+  "Fireworks",
+  "Confetti & sparklers"
+];
+const vibeChips = [
+  "Warm & heartfelt",
+  "Hype & energetic",
+  "Thankful & sentimental",
+  "Playful & funny"
+];
+const settingChips = [
+  "Rooftop golden hour",
+  "Beach sunset",
+  "Cozy indoor",
+  "Festive outdoor"
+];
+const musicChips = [
+  "Pop",
+  "Hip-hop",
+  "R&B",
+  "Rock",
+  "Country",
+  "Indie",
+  "Acoustic"
+];
+
 function StepPrompt({
   draft,
   update,
@@ -865,6 +965,46 @@ function StepPrompt({
   voiceClone: VoiceCloneState;
   onVoiceCloneReady: (clone: VoiceCloneState) => void;
 }) {
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState("");
+
+  async function loadSuggestion() {
+    if (!draft.photoDataUrl) {
+      setSuggestError("Upload a photo on the previous step first.");
+      return;
+    }
+    setSuggestLoading(true);
+    setSuggestError("");
+    try {
+      const safePhoto = await ensureSafePhotoDataUrl(draft.photoDataUrl);
+      if (safePhoto !== draft.photoDataUrl) {
+        update({ photoDataUrl: safePhoto });
+      }
+      const result = await studioApi.suggestPrompt({
+        photoDataUrl: safePhoto,
+        photoName: draft.photoName,
+        birthdayName: draft.firstName || draft.name
+      });
+      update({ promptSuggestion: result.suggestion });
+    } catch (error) {
+      setSuggestError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't draft a suggestion."
+      );
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
+
+  function toggleAccent(label: string) {
+    const current = draft.accents ?? [];
+    const next = current.includes(label)
+      ? current.filter((entry) => entry !== label)
+      : [...current, label];
+    update({ accents: next });
+  }
+
   return (
     <section className="bb-step-panel">
       <Heading
@@ -884,6 +1024,71 @@ function StepPrompt({
           placeholder="Make it feel like a warm cinematic rooftop birthday at golden hour, with the two of us laughing about that time we missed the last train home."
         />
       </Field>
+      <div className="bb-suggest-row">
+        <button
+          className="bb-outline-button"
+          onClick={loadSuggestion}
+          disabled={suggestLoading || !draft.photoDataUrl}
+        >
+          <Icon name="sparkle" />
+          {suggestLoading ? "Drafting..." : "Suggest from your photo"}
+        </button>
+        {draft.promptSuggestion ? (
+          <div className="bb-suggest-pill">
+            <span>{draft.promptSuggestion}</span>
+            <button
+              className="bb-text-button"
+              onClick={() => update({ message: draft.promptSuggestion })}
+            >
+              Use this
+            </button>
+          </div>
+        ) : null}
+        {suggestError ? <p className="bb-field-error">{suggestError}</p> : null}
+      </div>
+      <ChipRow
+        label="Accents"
+        hint="Stack as many as you like."
+        chips={accentChips}
+        selected={draft.accents ?? []}
+        otherValue={draft.accentsOther || ""}
+        onToggle={toggleAccent}
+        onOtherChange={(value) => update({ accentsOther: value })}
+        multi
+      />
+      <ChipRow
+        label="Vibe"
+        hint="Pick the emotional tone."
+        chips={vibeChips}
+        selected={draft.vibe ? [draft.vibe] : []}
+        otherValue={draft.vibeOther || ""}
+        onToggle={(label) =>
+          update({ vibe: draft.vibe === label ? "" : label })
+        }
+        onOtherChange={(value) => update({ vibeOther: value })}
+      />
+      <ChipRow
+        label="Setting"
+        hint="Optional — anchors the location."
+        chips={settingChips}
+        selected={draft.setting ? [draft.setting] : []}
+        otherValue={draft.settingOther || ""}
+        onToggle={(label) =>
+          update({ setting: draft.setting === label ? "" : label })
+        }
+        onOtherChange={(value) => update({ settingOther: value })}
+      />
+      <ChipRow
+        label="Music"
+        hint="Optional — colors the soundtrack vibe."
+        chips={musicChips}
+        selected={draft.musicGenre ? [draft.musicGenre] : []}
+        otherValue={draft.musicGenreOther || ""}
+        onToggle={(label) =>
+          update({ musicGenre: draft.musicGenre === label ? "" : label })
+        }
+        onOtherChange={(value) => update({ musicGenreOther: value })}
+      />
       <div className="bb-voice-block">
         {voiceClone.ready ? (
           <section className="bb-voice-ready-card">
@@ -906,6 +1111,75 @@ function StepPrompt({
         )}
       </div>
     </section>
+  );
+}
+
+function ChipRow({
+  label,
+  hint,
+  chips,
+  selected,
+  otherValue,
+  onToggle,
+  onOtherChange,
+  multi = false
+}: {
+  label: string;
+  hint?: string;
+  chips: string[];
+  selected: string[];
+  otherValue: string;
+  onToggle: (label: string) => void;
+  onOtherChange: (value: string) => void;
+  multi?: boolean;
+}) {
+  const [otherOpen, setOtherOpen] = useState(Boolean(otherValue));
+  return (
+    <div className="bb-chip-row">
+      <header>
+        <strong>{label}</strong>
+        {hint ? <small>{hint}</small> : null}
+      </header>
+      <div className="bb-chip-list">
+        {chips.map((chip) => (
+          <button
+            key={chip}
+            type="button"
+            className={`bb-chip ${selected.includes(chip) ? "is-selected" : ""}`}
+            onClick={() => onToggle(chip)}
+          >
+            {chip}
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`bb-chip ${otherOpen || otherValue ? "is-selected" : ""}`}
+          onClick={() => {
+            if (otherOpen && otherValue) {
+              onOtherChange("");
+            }
+            setOtherOpen((open) => !open);
+          }}
+          aria-pressed={otherOpen}
+        >
+          Other…
+        </button>
+      </div>
+      {otherOpen ? (
+        <input
+          type="text"
+          className="bb-chip-other"
+          maxLength={80}
+          placeholder={
+            multi
+              ? `Add your own ${label.toLowerCase()} — comma-separate for many.`
+              : `Describe your own ${label.toLowerCase()}.`
+          }
+          value={otherValue}
+          onChange={(event) => onOtherChange(event.target.value)}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -1097,17 +1371,20 @@ function StepPreview({
       <div className="bb-preview-layout">
         <div className={`bb-postcard swatch-${draft.color} is-preview`}>
           {generation.videoUrl ? (
-            <video className="bb-generated-video" controls playsInline src={generation.videoUrl} />
+            <GeneratedVideo
+              videoUrl={generation.videoUrl}
+              voiceOverUrl={generation.voiceOverUrl}
+            />
           ) : (
             <Photo friend={{ ...draft, photo: true }} size="fill" />
           )}
           {!generation.videoUrl ? <div className="bb-postcard-shade" /> : null}
           {!generating && !isGenerating && !generation.videoUrl ? <PlayButton /> : null}
-          {generating || isGenerating ? (
+          {(generating || isGenerating) && !generation.videoUrl ? (
             <div className="bb-rendering">
               <span />
               <strong>{isGenerating ? generation.message : stage}</strong>
-              <i><b style={{ width: `${isGenerating ? 64 : progress}%` }} /></i>
+              <i><b style={{ width: `${progress}%` }} /></i>
             </div>
           ) : null}
           {!generation.videoUrl ? <PostcardCaption friend={draft} /> : null}
@@ -1150,7 +1427,6 @@ function StepPreview({
             <span className="bb-card-heading">Video output</span>
             <strong>{generation.phase === "completed" ? "Video ready" : generation.phase === "failed" ? "Needs attention" : "Generate video"}</strong>
             <small>{generation.error || generation.message}</small>
-            {generation.voiceOverUrl ? <audio controls src={generation.voiceOverUrl} /> : null}
             <button
               className="bb-sticker-button"
               onClick={generateVideo}
@@ -1158,10 +1434,157 @@ function StepPreview({
             >
               <Icon name="play" /> {isGenerating ? "Generating..." : generation.videoUrl ? "Generate again" : "Generate birthday video"}
             </button>
+            {generation.videoUrl ? (
+              <a
+                className="bb-outline-button"
+                href={`/api/download?url=${encodeURIComponent(generation.videoUrl)}&name=${encodeURIComponent(`birthday-${draft.firstName || draft.name || "video"}.mp4`)}`}
+                download
+              >
+                <Icon name="download" /> Download video
+              </a>
+            ) : null}
           </section>
+          {draft.delivery === "email" ? (
+            <EmailSendCard
+              draft={draft}
+              update={update}
+              videoUrl={generation.videoUrl}
+              caption={generation.caption}
+            />
+          ) : null}
           <button className="bb-outline-button" onClick={start}><Icon name="sparkle" /> Regenerate preview</button>
         </aside>
       </div>
+    </section>
+  );
+}
+
+function GeneratedVideo({
+  videoUrl,
+  voiceOverUrl
+}: {
+  videoUrl: string;
+  voiceOverUrl?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio) return;
+
+    function onPlay() {
+      audio!.currentTime = video!.currentTime;
+      audio!.play().catch(() => {});
+    }
+    function onPause() {
+      audio!.pause();
+    }
+    function onSeek() {
+      audio!.currentTime = video!.currentTime;
+    }
+    function onRateChange() {
+      audio!.playbackRate = video!.playbackRate;
+    }
+
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("seeked", onSeek);
+    video.addEventListener("ratechange", onRateChange);
+    return () => {
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("seeked", onSeek);
+      video.removeEventListener("ratechange", onRateChange);
+    };
+  }, [videoUrl, voiceOverUrl]);
+
+  return (
+    <>
+      <video
+        ref={videoRef}
+        className="bb-generated-video"
+        controls
+        playsInline
+        src={videoUrl}
+      />
+      {voiceOverUrl ? (
+        <audio ref={audioRef} src={voiceOverUrl} preload="auto" />
+      ) : null}
+    </>
+  );
+}
+
+function EmailSendCard({
+  draft,
+  update,
+  videoUrl,
+  caption
+}: {
+  draft: Friend;
+  update: (patch: Partial<Friend>) => void;
+  videoUrl?: string;
+  caption?: string;
+}) {
+  const [sending, setSending] = useState(false);
+  const [sentId, setSentId] = useState("");
+  const [error, setError] = useState("");
+
+  async function sendEmail() {
+    setError("");
+    setSentId("");
+    if (!videoUrl) {
+      setError("Generate the birthday video before sending.");
+      return;
+    }
+    if (!draft.email?.trim()) {
+      setError("Enter a recipient email above.");
+      return;
+    }
+    setSending(true);
+    try {
+      const result = await studioApi.sendEmail({
+        to: draft.email.trim(),
+        birthdayName: draft.firstName || draft.name || "your friend",
+        message: draft.message || "Happy birthday!",
+        caption,
+        videoUrl
+      });
+      setSentId(result.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Email send failed.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section className="bb-email-card">
+      <span className="bb-card-heading">Email it</span>
+      <strong>Send to inbox</strong>
+      <small>
+        We&apos;ll deliver the muxed video as an inline player plus a
+        download link fallback. Powered by Resend.
+      </small>
+      <input
+        type="email"
+        placeholder="recipient@example.com"
+        value={draft.email || ""}
+        onChange={(event) => update({ email: event.target.value })}
+        autoComplete="email"
+      />
+      {error ? <p className="bb-field-error">{error}</p> : null}
+      {sentId ? (
+        <p className="bb-email-sent">Sent — provider id {sentId}.</p>
+      ) : null}
+      <button
+        className={`bb-sticker-button ${sending ? "is-sending" : ""}`}
+        onClick={sendEmail}
+        disabled={sending || !videoUrl}
+      >
+        <Icon name="check" /> {sending ? "Sending..." : "Send birthday email"}
+      </button>
     </section>
   );
 }
@@ -1367,7 +1790,13 @@ function DetailView({ id, setView }: { id: number; setView: (view: View) => void
             <Recipe label="Sends" value={`${friend.dateLong} * ${friend.delivery}`} ok />
           </section>
           <div className="bb-detail-actions">
-            <button className="bb-sticker-button" onClick={() => setView({ name: "wizard", step: 0, friend })}><Icon name="edit" /> Edit video</button>
+            <button
+              className="bb-sticker-button"
+              onClick={() => {
+                clearWizardSnapshot();
+                setView({ name: "wizard", step: 0, friend });
+              }}
+            ><Icon name="edit" /> Edit video</button>
             <button className="bb-outline-button">Send a preview to me</button>
           </div>
         </div>
@@ -1618,6 +2047,7 @@ type IconName =
   | "calendar"
   | "check"
   | "clock"
+  | "download"
   | "edit"
   | "list"
   | "message"
@@ -1638,6 +2068,7 @@ function Icon({ name }: { name: IconName }) {
     calendar: ["M3 6h18v15H3z", "M8 3v4", "M16 3v4", "M3 10h18"],
     check: ["M20 6L9 17l-5-5"],
     clock: ["M12 7v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"],
+    download: ["M12 3v12", "M7 10l5 5 5-5", "M4 19h16"],
     edit: ["M11 4H4v16h16v-7", "M18 2l4 4-9 9H9v-4z"],
     list: ["M3 7h18", "M3 12h12", "M3 17h18"],
     message: ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"],
@@ -1673,17 +2104,21 @@ function blankFriend(): Friend {
     photo: false,
     color: "pink",
     message: "",
-    style: "sing-along",
+    style: "",
     delivery: "text"
   };
 }
 
 function buildSimpleDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
   const name = friend.firstName || firstName(friend.name) || friend.name;
+  const userPrompt = friend.message?.trim() || `Make a warm birthday video for ${name || "my friend"}.`;
+  const directives = buildPromptDirectives(friend);
+  const prompt = directives ? `${userPrompt}\n\n${directives}` : userPrompt;
+
   return {
     mode: "simple",
     birthdayName: name,
-    prompt: friend.message?.trim() || `Make a warm birthday video for ${name || "my friend"}.`,
+    prompt,
     photoName: friend.photoName || `${name || "birthday"}-photo.png`,
     photoDataUrl: friend.photoDataUrl || "",
     voiceSampleName: voiceClone.voiceSampleName,
@@ -1694,6 +2129,38 @@ function buildSimpleDraftRequest(friend: Friend, voiceClone: VoiceCloneState): D
     voiceMode: "narrate",
     advanced: defaultAdvancedSettings
   };
+}
+
+function buildPromptDirectives(friend: Friend): string {
+  const parts: string[] = [];
+
+  const accentList = [
+    ...(friend.accents ?? []),
+    ...((friend.accentsOther || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean))
+  ];
+  if (accentList.length > 0) {
+    parts.push(`Accents: ${accentList.join(", ")}.`);
+  }
+
+  const vibe = (friend.vibeOther || friend.vibe || "").trim();
+  if (vibe) {
+    parts.push(`Vibe: ${vibe}.`);
+  }
+
+  const setting = (friend.settingOther || friend.setting || "").trim();
+  if (setting) {
+    parts.push(`Setting: ${setting}.`);
+  }
+
+  const music = (friend.musicGenreOther || friend.musicGenre || "").trim();
+  if (music) {
+    parts.push(`Music: ${music}.`);
+  }
+
+  return parts.join(" ");
 }
 
 function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
@@ -1735,8 +2202,8 @@ async function pollGenerationJob(
 ) {
   let latestJob = initialJob;
 
-  for (let attempt = 0; attempt < 160; attempt += 1) {
-    await wait(2200);
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    await wait(3000);
     const job = await studioApi.checkJob({ job: latestJob, plan: planRecord });
     latestJob = job;
 
@@ -1774,6 +2241,54 @@ function saveVoiceSetup(next: VoiceCloneState): VoiceCloneState {
   }
 
   return next;
+}
+
+const wizardSnapshotKey = "birthdaybot:wizard-state";
+const wizardSnapshotTtlMs = 2 * 60 * 60 * 1000; // 2 hours
+
+type WizardSnapshot = {
+  draft: Friend;
+  briefPlan: AgentPlan | null;
+  briefCaption: string;
+  briefRequestId: string;
+  briefDraft: DraftRequest | null;
+  generation: GenerationState;
+};
+
+function readWizardSnapshot(): Partial<WizardSnapshot> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(wizardSnapshotKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt: number; data: Partial<WizardSnapshot> };
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > wizardSnapshotTtlMs) {
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeWizardSnapshot(data: Partial<WizardSnapshot>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      wizardSnapshotKey,
+      JSON.stringify({ savedAt: Date.now(), data })
+    );
+  } catch {
+    // Quota exceeded; silently skip — the in-memory flow keeps working.
+  }
+}
+
+function clearWizardSnapshot() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(wizardSnapshotKey);
+  } catch {
+    // ignore
+  }
 }
 
 function wait(ms: number) {
@@ -1829,6 +2344,66 @@ function fileToDataUrl(file: Blob) {
     reader.onerror = () => reject(new Error("File read failed."));
     reader.readAsDataURL(file);
   });
+}
+
+const MAX_PHOTO_LONG_EDGE = 1280;
+const PHOTO_JPEG_QUALITY = 0.8;
+const SAFE_DATA_URL_BYTES = 3.0 * 1024 * 1024;
+
+async function fileToCompressedDataUrl(file: File): Promise<string> {
+  if (typeof window === "undefined") {
+    return fileToDataUrl(file);
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    return compressBitmap(bitmap);
+  } catch {
+    return fileToDataUrl(file);
+  }
+}
+
+async function ensureSafePhotoDataUrl(dataUrl: string): Promise<string> {
+  if (typeof window === "undefined") {
+    return dataUrl;
+  }
+  if (dataUrl.length <= SAFE_DATA_URL_BYTES) {
+    return dataUrl;
+  }
+
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    return compressBitmap(bitmap);
+  } catch {
+    return dataUrl;
+  }
+}
+
+function compressBitmap(bitmap: ImageBitmap): string {
+  const longEdge = Math.max(bitmap.width, bitmap.height);
+  const scale = longEdge > MAX_PHOTO_LONG_EDGE ? MAX_PHOTO_LONG_EDGE / longEdge : 1;
+  const targetWidth = Math.round(bitmap.width * scale);
+  const targetHeight = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Canvas 2D context unavailable.");
+  }
+  ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+  bitmap.close();
+
+  let quality = PHOTO_JPEG_QUALITY;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > SAFE_DATA_URL_BYTES && quality > 0.5) {
+    quality -= 0.1;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+  return dataUrl;
 }
 
 function stopVoiceStream(stream: MediaStream | null) {

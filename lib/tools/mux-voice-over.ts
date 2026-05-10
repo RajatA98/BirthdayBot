@@ -1,16 +1,16 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { fal } from "@fal-ai/client";
+import ffmpegStaticPath from "ffmpeg-static";
 
 import { traceTool } from "@/lib/langfuse";
 
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
 
 const partyMusicAssetPath = join(
   process.cwd(),
@@ -22,6 +22,12 @@ const defaultVideoDurationSeconds = 15;
 const maxMuxedVideoDurationSeconds = 20;
 const finalVideoBitrateKbps = 4500;
 const finalVideoAudioBitrateKbps = 96;
+const tracedFfmpegAssetPath = join(
+  process.cwd(),
+  "node_modules",
+  "ffmpeg-static",
+  process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+);
 
 export async function muxVoiceOverIntoVideo(
   videoUrl: string,
@@ -147,8 +153,10 @@ function muxFfmpegArgs({
       "[2:a:0]volume=0.32,apad[music_pre]",
       // Sidechain duck: music is ATTENUATED in real time when the voice key is present
       "[music_pre][voice_key]sidechaincompress=threshold=0.05:ratio=8:attack=8:release=320:makeup=1[music_ducked]",
-      // Final mix: voice + ducked music, then loudness-normalize to social/mobile target (-16 LUFS)
-      "[voice_main][music_ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]"
+      // Final mix: voice + ducked music, then loudness-normalize to social/mobile target (-16 LUFS).
+      // duration=longest keeps the audio bus alive for the full video length — once the voice ends,
+      // the ducked music plays out the rest of the scene instead of cutting the clip short.
+      "[voice_main][music_ducked]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]"
     ].join(";"),
     "-map",
     "0:v:0",
@@ -380,10 +388,13 @@ async function providerErrorMessage(response: Response, fallback: string) {
 }
 
 function getFfmpegPath() {
-  try {
-    const moduleName = ["ffmpeg", "-static"].join("");
-    return require(moduleName) as string | undefined;
-  } catch {
-    return undefined;
+  if (typeof ffmpegStaticPath === "string" && ffmpegStaticPath) {
+    return ffmpegStaticPath;
   }
+
+  if (existsSync(tracedFfmpegAssetPath)) {
+    return tracedFfmpegAssetPath;
+  }
+
+  return undefined;
 }

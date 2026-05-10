@@ -403,6 +403,20 @@ svg {
   box-shadow: 0 18px 50px oklch(0.22 0.04 290 / 0.13);
 }
 
+.bb-postcard.is-preview {
+  /* Width-driven sizing — the canonical webapp pattern:
+     - width: 100% fills the panel up to max-width.
+     - max-width: 480px caps the portrait tile (same cap Instagram /
+       Vimeo use for 4:5 media tiles).
+     - aspect-ratio (4/5) inherited from .bb-postcard derives height
+       automatically from width.
+     - margin: 0 auto centers within the panel.
+     No max-height, no min-height fight, no aspect-vs-height tension. */
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
 .bb-postcard-shade {
   position: absolute;
   inset: 0;
@@ -1433,7 +1447,18 @@ svg {
 }
 
 .bb-step-panel {
+  /* Defensive sizing so the panel never causes the page to overflow:
+     - max-width caps the design width.
+     - width: 100% lets the panel actually fill its parent up to that cap
+       (max-width alone doesn't force a width).
+     - min-width: 0 overrides the default min-width: auto on grid/flex
+       children so the panel can shrink below intrinsic content size.
+     - box-sizing: border-box folds the 40px horizontal padding into the
+       width calc so 100% includes it. */
   max-width: 720px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 40px 40px 32px;
   animation: bb-fade-up 350ms ease both;
@@ -1761,7 +1786,14 @@ svg {
 }
 
 .bb-preview-layout {
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  /* Single-column stack — same flow pattern as the Brief step. The
+     postcard sits on top, the sidebar cards stack below. No grid
+     means no aspect-ratio-vs-track-width tension and no horizontal
+     overflow risk on any viewport. */
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 28px;
 }
 
 .bb-preview-side {
@@ -2337,6 +2369,137 @@ svg {
   .bb-sent-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.bb-suggest-row {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.bb-suggest-pill {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bb-paper);
+  border: 1px dashed var(--bb-border-strong);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--bb-ink);
+}
+
+.bb-suggest-pill > span {
+  flex: 1;
+}
+
+.bb-chip-row {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.bb-chip-row > header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bb-chip-row strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bb-chip-row small {
+  font-size: 11px;
+  color: var(--bb-ink-lite);
+}
+
+.bb-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bb-chip {
+  appearance: none;
+  border: 1.5px solid var(--bb-border-strong);
+  border-radius: 999px;
+  background: var(--bb-bg);
+  color: var(--bb-ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.bb-chip:hover {
+  border-color: var(--bb-ink);
+}
+
+.bb-chip.is-selected {
+  background: var(--bb-ink);
+  color: var(--bb-bg);
+  border-color: var(--bb-ink);
+}
+
+.bb-chip-other {
+  appearance: none;
+  border: 1.5px solid var(--bb-border-strong);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bb-bg);
+  color: var(--bb-ink);
+  width: 100%;
+}
+
+.bb-chip-other:focus {
+  outline: 2px solid var(--bb-pink);
+  outline-offset: 2px;
+}
+
+.bb-email-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--bb-border);
+  border-radius: 12px;
+  background: var(--bb-paper);
+}
+
+.bb-email-card input[type="email"] {
+  appearance: none;
+  border: 1.5px solid var(--bb-border-strong);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bb-bg);
+  color: var(--bb-ink);
+  width: 100%;
+}
+
+.bb-email-card input[type="email"]:focus {
+  outline: 2px solid var(--bb-pink);
+  outline-offset: 2px;
+}
+
+.bb-email-card .bb-sticker-button.is-sending {
+  animation: bb-email-pulse 1.4s ease-in-out infinite;
+}
+
+.bb-email-sent {
+  font-size: 12px;
+  color: oklch(0.5 0.16 145);
+  margin: 0;
+}
+
+@keyframes bb-email-pulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

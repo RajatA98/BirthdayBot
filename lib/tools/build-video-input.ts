@@ -48,7 +48,7 @@ export function buildFalInput(
   const occasion = getOccasionConfig(occasionFromDraft(draft));
   input.negative_prompt = options.safeRetry
     ? [
-        "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity, different people, replacement actors, stock-footage people, new characters, subject swap",
+        "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity, different people, replacement actors, stock-footage people, new characters, subject swap, anonymous athletes, anonymous runners, generic crowd",
         occasion.negativePromptExtras
       ]
         .filter(Boolean)
@@ -56,7 +56,7 @@ export function buildFalInput(
     : [
         "any on-screen text, captions, subtitles, lower thirds, title cards, words, letters, signage with words, written messages, name tags, watermark, logo",
         "blur, distort, low quality, distorted hands, extra faces, changed identity",
-        "different people from the source photo, replacement actors, body double, stock-footage people, generic athletes, generic models, new characters appearing mid-shot, subject swap during transition, scene cut to unrelated people",
+        "different people from the source photo, replacement actors, body double, stock-footage people, generic athletes, generic runners, generic triathletes, anonymous athletes, anonymous runners, anonymous models, generic models, new characters appearing mid-shot, subject swap during transition, scene cut to unrelated people, faceless people, back of head only of new people",
         occasion.negativePromptExtras,
         plan.negativePrompt
       ]
@@ -137,16 +137,23 @@ export function buildFalPrompt(
     ? `The voice-over is the user's OWN spoken ${isMothersDay ? "Mother's Day message" : "birthday message"} (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it.`
     : undefined;
 
+  const cast = Array.isArray(plan.identityAnchors) && plan.identityAnchors.length > 0
+    ? `ON-SCREEN CAST (only people allowed): ${plan.identityAnchors
+        .map((anchor, index) => `Person ${index + 1}: ${anchor}`)
+        .join(". ")}. These ${plan.identityAnchors.length} people are the only characters in any frame — never replaced, never joined by extras, never swapped during transitions or wide shots.`
+    : undefined;
+
   const joined = [
     occasion.sceneOpeningLine,
-    "IDENTITY LOCK: The on-screen subjects must be the exact same people from the uploaded source photo throughout the entire video — every shot, every transition, every action moment, every wide angle. Do NOT cut away to other people, do NOT replace the subjects with stock-looking actors or models, and do NOT introduce new characters during transitions or motion. If the camera pulls back, the people in the wider frame are still the source-photo subjects, not generic stand-ins. Preserve their faces, skin tone, hair, body type, clothing cues, and the relationship shown in the source photo across the whole clip.",
+    "FIRST FRAME ANCHOR: Begin with the uploaded source photo as frame 0; animate from that exact frame. The same faces, hair, skin tone, body types, outfits, and relative positions persist across every subsequent frame.",
+    "IDENTITY LOCK: The on-screen subjects must remain the exact same people from the source photo through every frame, transition, and camera move. Never replace them with stock actors, generic athletes, anonymous runners, or new characters. The user prompt below describes the SCENE around them, not a different cast — the cast does NOT change to match the prompt; the scene adapts around the cast.",
+    cast,
     `User video prompt: ${draft.prompt}`,
-    "Treat the user video prompt as the main creative direction for the generated video, but never at the expense of the IDENTITY LOCK above.",
+    "Treat the user video prompt as creative scene direction, never at the expense of IDENTITY LOCK above.",
     textDirection,
     musicDirection,
     audioDelivery,
     celebrationLine,
-    "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
     `Concept: ${plan.concept}`,
     `Scene direction: ${plan.sceneDirection}`,
     `Motion direction: ${plan.motionDirection}`,

@@ -44,8 +44,10 @@ describe("buildFalPrompt", () => {
 
     expect(prompt).toContain("User video prompt: Make it a rooftop toast at sunset.");
     expect(prompt).toContain(
-      "Treat the user video prompt as the main creative direction"
+      "Treat the user video prompt as creative scene direction"
     );
+    expect(prompt).toContain("IDENTITY LOCK");
+    expect(prompt).toContain("ON-SCREEN CAST");
     // The fal model must NOT render any text in-frame — the HTML overlay
     // (creation-form.tsx ResultVideo) handles the title and the voice-over
     // carries the message. The full caption should never reach the prompt.
