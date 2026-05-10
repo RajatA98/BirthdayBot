@@ -70,6 +70,10 @@ export function buildFalPrompt(
     "sceneGuardrails" in plan && Array.isArray(plan.sceneGuardrails)
       ? `Scene guardrails: ${plan.sceneGuardrails.join("; ")}.`
       : undefined;
+  const isSpeakYourself = draft.voiceMode === "speak-yourself";
+  const audioDelivery = isSpeakYourself
+    ? "The voice-over is the user's OWN spoken birthday message (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it."
+    : undefined;
 
   return [
     "Create a short cinematic birthday celebration video from the uploaded photo.",
@@ -77,6 +81,7 @@ export function buildFalPrompt(
     "Treat the user video prompt as the main creative direction for the generated video.",
     textDirection,
     musicDirection,
+    audioDelivery,
     "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene.",
     "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
     `Concept: ${plan.concept}`,
