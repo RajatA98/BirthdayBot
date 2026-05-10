@@ -52,7 +52,9 @@ export async function GET(request: Request) {
       headers: {
         "Content-Type": contentType,
         "Content-Disposition": `attachment; filename="${safeName}"`,
-        "Cache-Control": "private, max-age=60"
+        "Cache-Control": "private, max-age=60",
+        "X-AI-Generated": "true",
+        "X-AI-Source": "BirthdayBot"
       }
     });
   } catch (error) {

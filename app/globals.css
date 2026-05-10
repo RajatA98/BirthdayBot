@@ -517,6 +517,40 @@ select:focus,
   cursor: not-allowed;
 }
 
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px !important;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(216, 94, 53, 0.12);
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  width: fit-content;
+}
+
+.voice-consent-group {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.46);
+  padding: 12px 14px;
+  margin: 0;
+}
+
+.voice-consent-group legend {
+  padding: 0 6px;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
 .song-style-grid {
   display: flex;
   flex-wrap: wrap;

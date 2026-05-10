@@ -180,7 +180,13 @@ describe("CreationForm", () => {
       screen.getByLabelText("Voice sample"),
       new File(["fake-audio"], "voice.wav", { type: "audio/wav" })
     );
-    await user.click(screen.getByLabelText(/I confirm this is my voice/));
+    await user.click(screen.getByLabelText(/This is my own voice/i));
+    await user.click(
+      screen.getByLabelText(/I consent to my voice being processed/i)
+    );
+    await user.click(
+      screen.getByLabelText(/output will be labeled as AI-generated/i)
+    );
     await user.click(screen.getByRole("button", { name: "Build my birthday brief" }));
 
     await waitFor(() => expect(createPlan).toHaveBeenCalledTimes(1));
@@ -335,7 +341,13 @@ describe("CreationForm", () => {
     ).toBeInTheDocument();
 
     await fillValidDraft(user);
-    await user.click(screen.getByLabelText(/I confirm this is my voice/));
+    await user.click(screen.getByLabelText(/This is my own voice/i));
+    await user.click(
+      screen.getByLabelText(/I consent to my voice being processed/i)
+    );
+    await user.click(
+      screen.getByLabelText(/output will be labeled as AI-generated/i)
+    );
     await user.click(screen.getByRole("button", { name: "Build my birthday brief" }));
 
     await waitFor(() => expect(createPlan).toHaveBeenCalledTimes(1));
