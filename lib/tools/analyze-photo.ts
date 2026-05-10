@@ -1,7 +1,21 @@
+import { createHash } from "node:crypto";
+
 import OpenAI from "openai";
 
 import { traceTool } from "@/lib/langfuse";
 import { DraftRequest, PhotoAnalysis } from "@/lib/types";
+
+// In-process cache so a single Lambda warm path doesn't re-run the
+// vision call for the same photo. Keyed on a content hash of the data
+// URL. plan-service + suggest-prompt both call analyzePhoto with the
+// same photo within a second of each other when the user takes the
+// suggest -> brief path; this collapses two vision calls into one.
+const PHOTO_ANALYSIS_CACHE = new Map<string, Promise<PhotoAnalysis>>();
+const PHOTO_ANALYSIS_CACHE_LIMIT = 32;
+
+export function __resetPhotoAnalysisCacheForTests() {
+  PHOTO_ANALYSIS_CACHE.clear();
+}
 
 // PROMPT-CACHING NOTE: this string is intentionally long (>1024 tokens) and
 // is held in a `const` reference. It MUST be the first message in the input
@@ -108,10 +122,21 @@ export async function analyzePhoto(input: DraftRequest): Promise<PhotoAnalysis> 
     return buildMockPhotoAnalysis();
   }
 
+  const cacheKey = input.photoDataUrl
+    ? createHash("sha1").update(input.photoDataUrl).digest("hex").slice(0, 24)
+    : null;
+
+  if (cacheKey) {
+    const cached = PHOTO_ANALYSIS_CACHE.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+
   const client = new OpenAI({ apiKey });
   const model = process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini";
 
-  return traceTool(
+  const inflight = traceTool(
     "analyze-photo",
     async () => {
       try {
@@ -167,6 +192,19 @@ export async function analyzePhoto(input: DraftRequest): Promise<PhotoAnalysis> 
       extractOutput: (result) => result.analysis
     }
   ).then((result) => result.analysis);
+
+  if (cacheKey) {
+    PHOTO_ANALYSIS_CACHE.set(cacheKey, inflight);
+    inflight.catch(() => PHOTO_ANALYSIS_CACHE.delete(cacheKey));
+    if (PHOTO_ANALYSIS_CACHE.size > PHOTO_ANALYSIS_CACHE_LIMIT) {
+      const oldestKey = PHOTO_ANALYSIS_CACHE.keys().next().value;
+      if (oldestKey) {
+        PHOTO_ANALYSIS_CACHE.delete(oldestKey);
+      }
+    }
+  }
+
+  return inflight;
 }
 
 function buildMockPhotoAnalysis(): PhotoAnalysis {

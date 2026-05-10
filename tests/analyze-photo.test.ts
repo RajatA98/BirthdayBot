@@ -20,7 +20,10 @@ vi.mock("openai", () => ({
   }))
 }));
 
-import { analyzePhoto } from "@/lib/tools/analyze-photo";
+import {
+  __resetPhotoAnalysisCacheForTests,
+  analyzePhoto
+} from "@/lib/tools/analyze-photo";
 import { DraftRequest } from "@/lib/types";
 
 describe("analyzePhoto prompt caching", () => {
@@ -29,6 +32,7 @@ describe("analyzePhoto prompt caching", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-openai-key";
     responsesCreate.mockClear();
+    __resetPhotoAnalysisCacheForTests();
   });
 
   afterEach(() => {
@@ -73,6 +77,14 @@ describe("analyzePhoto prompt caching", () => {
     };
     expect(call.input?.[0]?.role).toBe("system");
     expect(call.input?.[1]?.role).toBe("user");
+  });
+
+  it("collapses two calls with the same photo into one OpenAI request", async () => {
+    const draft = makeDraft();
+    const [a, b] = await Promise.all([analyzePhoto(draft), analyzePhoto(draft)]);
+
+    expect(responsesCreate).toHaveBeenCalledTimes(1);
+    expect(a).toEqual(b);
   });
 });
 

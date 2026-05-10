@@ -498,16 +498,12 @@ function Wizard({
       return;
     }
 
+    // Cosmetic progress bar only — caps at 92% and waits for the real
+    // job to finish before allowing 100%. The actual generating flag
+    // is flipped off in handleJob's terminal branch (or in the catch).
     const timer = window.setInterval(() => {
-      setProgress((current) => {
-        const next = Math.min(100, current + 7);
-        if (next === 100) {
-          window.clearInterval(timer);
-          window.setTimeout(() => setGenerating(false), 350);
-        }
-        return next;
-      });
-    }, 220);
+      setProgress((current) => Math.min(92, current + 5));
+    }, 280);
 
     return () => window.clearInterval(timer);
   }, [generating]);
@@ -570,6 +566,8 @@ function Wizard({
     }
 
     try {
+      setProgress(0);
+      setGenerating(true);
       setGeneration({
         phase: "planning",
         message: "Sending the brief to the video model."
@@ -603,6 +601,8 @@ function Wizard({
           );
         }
 
+        const isTerminal = job.stage === "completed" || job.stage === "failed";
+
         setGeneration({
           phase: job.stage === "completed" ? "completed" : job.stage === "failed" ? "failed" : "generating",
           message: job.statusMessage,
@@ -614,6 +614,11 @@ function Wizard({
           voiceOverUrl: job.voiceOverUrl,
           error: job.error || job.voiceOverError
         });
+
+        if (isTerminal) {
+          setProgress(100);
+          setGenerating(false);
+        }
       };
 
       handleJob(generationJob);
@@ -622,6 +627,7 @@ function Wizard({
         await pollGenerationJob(generationJob, planRecord, handleJob);
       }
     } catch (error) {
+      setGenerating(false);
       setGeneration({
         phase: "failed",
         message: "Video generation could not be started.",
@@ -1276,11 +1282,11 @@ function StepPreview({
           )}
           {!generation.videoUrl ? <div className="bb-postcard-shade" /> : null}
           {!generating && !isGenerating && !generation.videoUrl ? <PlayButton /> : null}
-          {generating || isGenerating ? (
+          {(generating || isGenerating) && !generation.videoUrl ? (
             <div className="bb-rendering">
               <span />
               <strong>{isGenerating ? generation.message : stage}</strong>
-              <i><b style={{ width: `${isGenerating ? 64 : progress}%` }} /></i>
+              <i><b style={{ width: `${progress}%` }} /></i>
             </div>
           ) : null}
           {!generation.videoUrl ? <PostcardCaption friend={draft} /> : null}
@@ -1944,8 +1950,8 @@ async function pollGenerationJob(
 ) {
   let latestJob = initialJob;
 
-  for (let attempt = 0; attempt < 160; attempt += 1) {
-    await wait(2200);
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    await wait(3000);
     const job = await studioApi.checkJob({ job: latestJob, plan: planRecord });
     latestJob = job;
 
@@ -2040,9 +2046,9 @@ function fileToDataUrl(file: Blob) {
   });
 }
 
-const MAX_PHOTO_LONG_EDGE = 1600;
-const PHOTO_JPEG_QUALITY = 0.85;
-const SAFE_DATA_URL_BYTES = 3.6 * 1024 * 1024;
+const MAX_PHOTO_LONG_EDGE = 1280;
+const PHOTO_JPEG_QUALITY = 0.8;
+const SAFE_DATA_URL_BYTES = 3.0 * 1024 * 1024;
 
 async function fileToCompressedDataUrl(file: File): Promise<string> {
   if (typeof window === "undefined") {
