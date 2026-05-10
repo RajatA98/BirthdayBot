@@ -9,7 +9,7 @@
 The product is built as a bounded agent workflow rather than a free-form chatbot. The backend analyzes the uploaded photo, creates a director-style generation plan, starts an async `fal` video job, monitors progress, muxes voice + music with `ffmpeg`, and returns a result the user can preview and download.
 
 **Live deploy:** <https://birthdaybot-five.vercel.app>
-**Latest commit on `main`:** [`7fd7f3a`](https://github.com/RajatA98/BirthdayBot/commit/7fd7f3a) — `Fix Generate-button regression + ship safe latency wins`
+**Latest commit on `main`:** [`51d555a`](https://github.com/RajatA98/BirthdayBot/commit/51d555a) — `Salvage raj-3: email send + ffmpeg fix + UX touches into 5-step wizard`
 
 ## Current Flow
 
@@ -86,6 +86,9 @@ USE_AI_MUSIC=
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
+
+RESEND_API_KEY=
+BIRTHDAYBOT_EMAIL_FROM=BirthdayBot <birthday@yourdomain.com>
 ```
 
 Notes:
@@ -98,6 +101,7 @@ Notes:
 - `USE_AI_MUSIC` overrides the AI music behavior: set `true` to force-on, `false` to force-off. If unset, AI music is automatically enabled whenever `ELEVENLABS_API_KEY` is present, with safe fallback to the static file on any failure.
 - Stock narration voice is auto-picked from the agent plan's `narrationVoiceCue` field (e.g. "warm Punjabi-accented male, mid-energy"). The default ElevenLabs voice library is English-American, so for authentic non-English accents add voices from the EL voice library to your account and configure these env vars: `ELEVENLABS_VOICE_SPANISH`, `ELEVENLABS_VOICE_INDIAN`, `ELEVENLABS_VOICE_KOREAN`, `ELEVENLABS_VOICE_JAPANESE`, `ELEVENLABS_VOICE_AFRICAN`, `ELEVENLABS_VOICE_ARABIC`, `ELEVENLABS_VOICE_MANDARIN`, `ELEVENLABS_VOICE_BRITISH`, `ELEVENLABS_VOICE_AUSTRALIAN`. Set `ELEVENLABS_STOCK_VOICE_ID` to force a specific stock voice regardless of the cue.
 - `Langfuse` is optional but recommended for tracing prompt decisions, timings, retries, and provider outcomes during real-photo testing.
+- `RESEND_API_KEY` powers the new `/api/email/send` route. Without it, the route returns a clean `503` explaining the missing config (no silent successes). `BIRTHDAYBOT_EMAIL_FROM` is the preferred sender; falls back to `EMAIL_FROM` then to Resend's onboarding default. The recipient mailbox receives an inline-playable HTML email with a watch-link fallback.
 
 ## Prompt-pipeline guardrails
 
@@ -172,6 +176,6 @@ vercel ls
 Project handoff and branch updates live in:
 
 - [ops/HANDOFF_2026-05-09.md](./ops/HANDOFF_2026-05-09.md)
-- [ops/updates](./ops/updates) — most recent: [`2026-05-10--main--7fd7f3a.md`](./ops/updates/2026-05-10--main--7fd7f3a.md). **If you are an AI agent picking this project up, read that file first.**
+- [ops/updates](./ops/updates) — most recent: [`2026-05-10--main--51d555a.md`](./ops/updates/2026-05-10--main--51d555a.md). **If you are an AI agent picking this project up, read that file first.**
 
 Pre-push hook (installed via [scripts/install-git-hooks.sh](./scripts/install-git-hooks.sh)) auto-stages a new ops update on push and blocks empty templates — fill in Summary / Blockers / Next Context before re-pushing.

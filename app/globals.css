@@ -2188,6 +2188,46 @@ svg {
   outline-offset: 2px;
 }
 
+.bb-email-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--bb-border);
+  border-radius: 12px;
+  background: var(--bb-paper);
+}
+
+.bb-email-card input[type="email"] {
+  appearance: none;
+  border: 1.5px solid var(--bb-border-strong);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bb-bg);
+  color: var(--bb-ink);
+  width: 100%;
+}
+
+.bb-email-card input[type="email"]:focus {
+  outline: 2px solid var(--bb-pink);
+  outline-offset: 2px;
+}
+
+.bb-email-card .bb-sticker-button.is-sending {
+  animation: bb-email-pulse 1.4s ease-in-out infinite;
+}
+
+.bb-email-sent {
+  font-size: 12px;
+  color: oklch(0.5 0.16 145);
+  margin: 0;
+}
+
+@keyframes bb-email-pulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

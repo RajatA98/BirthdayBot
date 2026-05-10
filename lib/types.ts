@@ -123,3 +123,15 @@ export type JobCheckRequest = {
   job: JobRecord;
   plan: PlanRecord;
 };
+
+export type EmailSendRequest = {
+  to: string;
+  birthdayName: string;
+  message: string;
+  videoUrl?: string;
+  caption?: string;
+};
+
+export type EmailSendResponse = {
+  id: string;
+};

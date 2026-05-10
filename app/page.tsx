@@ -35,6 +35,7 @@ type Friend = {
   message: string;
   style: "sing-along" | "lip-sync" | "serenade" | "";
   delivery: "text" | "email" | "link";
+  email?: string;
   accents?: string[];
   accentsOther?: string;
   vibe?: string;
@@ -491,7 +492,38 @@ function Wizard({
   const [briefDraft, setBriefDraft] = useState<DraftRequest | null>(null);
   const [briefError, setBriefError] = useState("");
   const [briefLoading, setBriefLoading] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const step = view.step;
+
+  // sessionStorage hydration: when the user reloads mid-flow, pick the
+  // wizard up where they left off. 2-hour TTL; stale snapshots are
+  // dropped silently. Only runs once on mount.
+  useEffect(() => {
+    const snapshot = readWizardSnapshot();
+    if (snapshot) {
+      if (snapshot.draft) setDraft(snapshot.draft);
+      if (snapshot.briefPlan) setBriefPlan(snapshot.briefPlan);
+      if (snapshot.briefCaption) setBriefCaption(snapshot.briefCaption);
+      if (snapshot.briefRequestId) setBriefRequestId(snapshot.briefRequestId);
+      if (snapshot.briefDraft) setBriefDraft(snapshot.briefDraft);
+      if (snapshot.generation) setGeneration(snapshot.generation);
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persist on every meaningful change. SessionStorage quota errors are
+  // swallowed silently — live in-memory flow keeps working.
+  useEffect(() => {
+    if (!hydrated) return;
+    writeWizardSnapshot({
+      draft,
+      briefPlan,
+      briefCaption,
+      briefRequestId,
+      briefDraft,
+      generation
+    });
+  }, [hydrated, draft, briefPlan, briefCaption, briefRequestId, briefDraft, generation]);
 
   useEffect(() => {
     if (!generating) {
@@ -1276,7 +1308,10 @@ function StepPreview({
       <div className="bb-preview-layout">
         <div className={`bb-postcard swatch-${draft.color} is-preview`}>
           {generation.videoUrl ? (
-            <video className="bb-generated-video" controls playsInline src={generation.videoUrl} />
+            <GeneratedVideo
+              videoUrl={generation.videoUrl}
+              voiceOverUrl={generation.voiceOverUrl}
+            />
           ) : (
             <Photo friend={{ ...draft, photo: true }} size="fill" />
           )}
@@ -1329,7 +1364,6 @@ function StepPreview({
             <span className="bb-card-heading">Video output</span>
             <strong>{generation.phase === "completed" ? "Video ready" : generation.phase === "failed" ? "Needs attention" : "Generate video"}</strong>
             <small>{generation.error || generation.message}</small>
-            {generation.voiceOverUrl ? <audio controls src={generation.voiceOverUrl} /> : null}
             <button
               className="bb-sticker-button"
               onClick={generateVideo}
@@ -1338,9 +1372,147 @@ function StepPreview({
               <Icon name="play" /> {isGenerating ? "Generating..." : generation.videoUrl ? "Generate again" : "Generate birthday video"}
             </button>
           </section>
+          {draft.delivery === "email" ? (
+            <EmailSendCard
+              draft={draft}
+              update={update}
+              videoUrl={generation.videoUrl}
+              caption={generation.caption}
+            />
+          ) : null}
           <button className="bb-outline-button" onClick={start}><Icon name="sparkle" /> Regenerate preview</button>
         </aside>
       </div>
+    </section>
+  );
+}
+
+function GeneratedVideo({
+  videoUrl,
+  voiceOverUrl
+}: {
+  videoUrl: string;
+  voiceOverUrl?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio) return;
+
+    function onPlay() {
+      audio!.currentTime = video!.currentTime;
+      audio!.play().catch(() => {});
+    }
+    function onPause() {
+      audio!.pause();
+    }
+    function onSeek() {
+      audio!.currentTime = video!.currentTime;
+    }
+    function onRateChange() {
+      audio!.playbackRate = video!.playbackRate;
+    }
+
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("seeked", onSeek);
+    video.addEventListener("ratechange", onRateChange);
+    return () => {
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("seeked", onSeek);
+      video.removeEventListener("ratechange", onRateChange);
+    };
+  }, [videoUrl, voiceOverUrl]);
+
+  return (
+    <>
+      <video
+        ref={videoRef}
+        className="bb-generated-video"
+        controls
+        playsInline
+        src={videoUrl}
+      />
+      {voiceOverUrl ? (
+        <audio ref={audioRef} src={voiceOverUrl} preload="auto" />
+      ) : null}
+    </>
+  );
+}
+
+function EmailSendCard({
+  draft,
+  update,
+  videoUrl,
+  caption
+}: {
+  draft: Friend;
+  update: (patch: Partial<Friend>) => void;
+  videoUrl?: string;
+  caption?: string;
+}) {
+  const [sending, setSending] = useState(false);
+  const [sentId, setSentId] = useState("");
+  const [error, setError] = useState("");
+
+  async function sendEmail() {
+    setError("");
+    setSentId("");
+    if (!videoUrl) {
+      setError("Generate the birthday video before sending.");
+      return;
+    }
+    if (!draft.email?.trim()) {
+      setError("Enter a recipient email above.");
+      return;
+    }
+    setSending(true);
+    try {
+      const result = await studioApi.sendEmail({
+        to: draft.email.trim(),
+        birthdayName: draft.firstName || draft.name || "your friend",
+        message: draft.message || "Happy birthday!",
+        caption,
+        videoUrl
+      });
+      setSentId(result.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Email send failed.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section className="bb-email-card">
+      <span className="bb-card-heading">Email it</span>
+      <strong>Send to inbox</strong>
+      <small>
+        We&apos;ll deliver the muxed video as an inline player plus a
+        watch-link fallback. Powered by Resend.
+      </small>
+      <input
+        type="email"
+        placeholder="recipient@example.com"
+        value={draft.email || ""}
+        onChange={(event) => update({ email: event.target.value })}
+        autoComplete="email"
+      />
+      {error ? <p className="bb-field-error">{error}</p> : null}
+      {sentId ? (
+        <p className="bb-email-sent">Sent — provider id {sentId}.</p>
+      ) : null}
+      <button
+        className={`bb-sticker-button ${sending ? "is-sending" : ""}`}
+        onClick={sendEmail}
+        disabled={sending || !videoUrl}
+      >
+        <Icon name="check" /> {sending ? "Sending..." : "Send birthday email"}
+      </button>
     </section>
   );
 }
@@ -1989,6 +2161,45 @@ function saveVoiceSetup(next: VoiceCloneState): VoiceCloneState {
   }
 
   return next;
+}
+
+const wizardSnapshotKey = "birthdaybot:wizard-state";
+const wizardSnapshotTtlMs = 2 * 60 * 60 * 1000; // 2 hours
+
+type WizardSnapshot = {
+  draft: Friend;
+  briefPlan: AgentPlan | null;
+  briefCaption: string;
+  briefRequestId: string;
+  briefDraft: DraftRequest | null;
+  generation: GenerationState;
+};
+
+function readWizardSnapshot(): Partial<WizardSnapshot> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(wizardSnapshotKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt: number; data: Partial<WizardSnapshot> };
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > wizardSnapshotTtlMs) {
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeWizardSnapshot(data: Partial<WizardSnapshot>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      wizardSnapshotKey,
+      JSON.stringify({ savedAt: Date.now(), data })
+    );
+  } catch {
+    // Quota exceeded; silently skip — the in-memory flow keeps working.
+  }
 }
 
 function wait(ms: number) {

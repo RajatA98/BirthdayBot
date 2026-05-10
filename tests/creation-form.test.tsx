@@ -638,6 +638,7 @@ function makeApi(overrides: Partial<StudioApi> = {}): StudioApi {
       })
     ),
     suggestPrompt: vi.fn(async () => ({ suggestion: "Test suggestion." })),
+    sendEmail: vi.fn(async () => ({ id: "test-email-id" })),
     ...overrides
   };
 }
