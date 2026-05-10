@@ -86,12 +86,17 @@ export async function startVideoGenerationTool(
   const endpoint =
     getServerEnv("FAL_VIDEO_MODEL") ||
     "fal-ai/kling-video/v3/standard/image-to-video";
+  // attempts > 1 means the auto-retry kicked in. Pass safeRetry through so
+  // buildFalInput uses a stripped-down prompt + lower cfg for a better
+  // chance of acceptance after a fal rejection.
+  const safeRetry = (job.attempts ?? 1) > 1;
   const input = buildFalInput(
     endpoint,
     uploadedUrl,
     videoDraft,
     planRecord.plan,
-    planRecord.caption
+    planRecord.caption,
+    { safeRetry }
   );
 
   logGenerationPayload({

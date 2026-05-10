@@ -46,14 +46,16 @@ describe("buildFalPrompt", () => {
     expect(prompt).toContain(
       "Treat the user video prompt as the main creative direction"
     );
-    expect(prompt).toContain(
-      "Embed tasteful subtle on-screen birthday text directly in the video frames"
+    // The fal model must NOT render any text in-frame — the HTML overlay
+    // (creation-form.tsx ResultVideo) handles the title and the voice-over
+    // carries the message. The full caption should never reach the prompt.
+    expect(prompt).toContain("Do not render any text");
+    expect(prompt).toContain("keep every frame text-free");
+    expect(prompt).not.toContain(
+      "Happy birthday to one of my favorite people."
     );
-    expect(prompt).toContain("Happy birthday to one of my favorite people.");
-    expect(prompt).toContain('warm "Happy Birthday!" title');
-    expect(prompt).toContain("compact 2-3 sentence message");
-    expect(prompt).toContain("gold, coral, and champagne gradient lettering");
-    expect(prompt).toContain("Avoid plain white text.");
+    expect(prompt).not.toContain("on-screen birthday text");
+    expect(prompt).not.toContain("gold, coral, and champagne gradient lettering");
     expect(prompt).toContain("uplifting birthday music bed");
     expect(prompt).toContain("birthday celebration");
     expect(prompt).toContain("cake");
@@ -88,7 +90,9 @@ describe("buildFalPrompt", () => {
     expect(prompt).toContain("Music vibe: Playful");
     expect(prompt).toContain("Motion intensity: Dramatic");
     expect(prompt).toContain("playful birthday music bed");
-    expect(prompt).toContain("tasteful bold on-screen birthday text");
+    // captionStyle no longer threaded into the fal prompt — the HTML overlay
+    // is the only on-screen text, so the in-video text directive is gone.
+    expect(prompt).not.toContain("on-screen birthday text");
   });
 
   it("keeps generated video narration-free so ElevenLabs can provide the voice-over", () => {
@@ -106,17 +110,18 @@ describe("buildFalPrompt", () => {
     expect(prompt).not.toContain("<<<voice_1>>>");
   });
 
-  it("keeps a few caption sentences in the on-video text prompt", () => {
+  it("keeps the spoken caption out of the fal prompt entirely", () => {
+    // The caption belongs to the voice-over and the HTML overlay, not the
+    // fal prompt — embedding it in-frame produced gibberish text artifacts.
     const prompt = buildFalPrompt(
       makeDraft(),
       makePlan(),
-      "Happy birthday, legend. I wanted this to feel more personal than a normal text. Hope your day feels cinematic. This extra sentence should stay out."
-    );
-
-    expect(prompt).toContain(
       "Happy birthday, legend. I wanted this to feel more personal than a normal text. Hope your day feels cinematic."
     );
-    expect(prompt).not.toContain("This extra sentence should stay out.");
+
+    expect(prompt).not.toContain("Happy birthday, legend.");
+    expect(prompt).not.toContain("I wanted this to feel more personal");
+    expect(prompt).not.toContain("Hope your day feels cinematic.");
   });
 });
 
@@ -138,7 +143,9 @@ describe("buildFalInput", () => {
     });
     expect(input).not.toHaveProperty("start_image_url");
     expect(input).not.toHaveProperty("generate_audio");
-    expect(input.negative_prompt).toContain("misspelled text");
+    expect(input.negative_prompt).toContain("on-screen text");
+    expect(input.negative_prompt).toContain("captions");
+    expect(input.negative_prompt).toContain("watermark");
   });
 
   it("enables native audio for newer endpoints that support it", () => {
@@ -165,6 +172,38 @@ describe("buildFalInput", () => {
       generate_audio: true
     });
     expect(input).not.toHaveProperty("image_url");
+  });
+
+  it("safeRetry: drops the verbose user-direction layer and lowers cfg_scale", () => {
+    const input = buildFalInput(
+      "fal-ai/kling-video/v3/standard/image-to-video",
+      "https://example.com/photo.png",
+      makeDraft({ prompt: "Make it a rooftop toast at sunset." }),
+      makePlan(),
+      "Happy birthday.",
+      { safeRetry: true }
+    );
+
+    // Prompt should NOT carry the user's verbatim direction.
+    expect(input.prompt).not.toContain("Make it a rooftop toast at sunset.");
+    expect(input.prompt).not.toContain("User video prompt:");
+    expect(input.prompt).not.toContain("Treat the user video prompt");
+    expect(input.prompt).not.toContain("Concept:");
+    expect(input.prompt).not.toContain("Advanced direction:");
+
+    // It SHOULD carry the plan's safePrompt and identity guardrails.
+    expect(input.prompt).toContain("Internal direction:");
+    expect(input.prompt).toContain(
+      "Keep the people recognizable and preserve identity"
+    );
+
+    // cfg_scale lowers on retry.
+    expect(input.cfg_scale).toBe(0.5);
+
+    // negative_prompt collapses to the minimal version.
+    expect(input.negative_prompt).toBe(
+      "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity"
+    );
   });
 
   it("does not ask Kling for audio or voice ids because ElevenLabs owns voice-over", () => {
