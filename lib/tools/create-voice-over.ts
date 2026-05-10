@@ -1,3 +1,4 @@
+import { traceTool } from "@/lib/langfuse";
 import { DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { getServerEnv } from "@/lib/server-env";
 
@@ -11,6 +12,31 @@ export type VoiceOverResult = {
 };
 
 export async function createVoiceOver(
+  planRecord: PlanRecord,
+  job: JobRecord
+): Promise<VoiceOverResult> {
+  return traceTool(
+    "voice-cloning",
+    () => createVoiceOverInner(planRecord, job),
+    {
+      requestId: job.requestId,
+      metadata: {
+        hasSample: Boolean(planRecord.draft.voiceSampleDataUrl),
+        hasConsent: Boolean(planRecord.draft.voiceConsent)
+      },
+      extractOutput: (result) => ({
+        outcome: result.voiceOverError
+          ? "error"
+          : result.voiceOverUrl
+            ? "ready"
+            : "skipped",
+        hasVoiceId: Boolean(result.providerVoiceId)
+      })
+    }
+  );
+}
+
+async function createVoiceOverInner(
   planRecord: PlanRecord,
   job: JobRecord
 ): Promise<VoiceOverResult> {

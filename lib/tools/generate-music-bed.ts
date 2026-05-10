@@ -1,3 +1,4 @@
+import { traceTool } from "@/lib/langfuse";
 import { getServerEnv } from "@/lib/server-env";
 import { DraftRequest, PlanRecord } from "@/lib/types";
 
@@ -6,6 +7,27 @@ const minMusicLengthMs = 3_000;
 const maxMusicLengthMs = 30_000;
 
 export async function generateAiMusicBed(
+  draft: DraftRequest,
+  plan: PlanRecord["plan"],
+  durationSeconds: number
+): Promise<Buffer | undefined> {
+  return traceTool(
+    "music-bed",
+    () => generateAiMusicBedInner(draft, plan, durationSeconds),
+    {
+      metadata: {
+        durationSeconds,
+        musicVibe: draft.mode === "advanced" ? draft.advanced.musicVibe : "Uplifting"
+      },
+      extractOutput: (result) => ({
+        outcome: result ? "ready" : "skipped",
+        bytes: result?.byteLength
+      })
+    }
+  );
+}
+
+async function generateAiMusicBedInner(
   draft: DraftRequest,
   plan: PlanRecord["plan"],
   durationSeconds: number

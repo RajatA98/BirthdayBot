@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { traceTool } from "@/lib/langfuse";
 import { DraftRequest, PhotoAnalysis } from "@/lib/types";
 
 // PROMPT-CACHING NOTE: this string is intentionally long (>1024 tokens) and
@@ -108,45 +109,64 @@ export async function analyzePhoto(input: DraftRequest): Promise<PhotoAnalysis> 
   }
 
   const client = new OpenAI({ apiKey });
-  try {
-    const response = await client.responses.create({
-      model: process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini",
-      input: [
-        { role: "system", content: systemInstructions },
-        {
-          role: "user",
-          content: [
+  const model = process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini";
+
+  return traceTool(
+    "analyze-photo",
+    async () => {
+      try {
+        const response = await client.responses.create({
+          model,
+          input: [
+            { role: "system", content: systemInstructions },
             {
-              type: "input_text",
-              text: "Analyze the attached photo and return the PhotoAnalysis JSON."
-            },
-            {
-              type: "input_image",
-              image_url: input.photoDataUrl,
-              detail: "low"
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: "Analyze the attached photo and return the PhotoAnalysis JSON."
+                },
+                {
+                  type: "input_image",
+                  image_url: input.photoDataUrl,
+                  detail: "low"
+                }
+              ]
             }
-          ]
-        }
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          ...jsonSchema
-        }
-      },
-      // prompt_cache_key is supported on the Responses API but not yet
-      // present in this SDK version's typings; cast to keep the rest typed.
-      ...({ prompt_cache_key: "birthdaybot-analyze-v1" } as object)
-    });
+          ],
+          text: {
+            format: {
+              type: "json_schema",
+              ...jsonSchema
+            }
+          },
+          // prompt_cache_key is supported on the Responses API but not yet
+          // present in this SDK version's typings; cast to keep the rest typed.
+          ...({ prompt_cache_key: "birthdaybot-analyze-v1" } as object)
+        });
 
-    return JSON.parse(response.output_text) as PhotoAnalysis;
-  } catch (error) {
-    if (shouldFallbackToMockOpenAI(error)) {
-      return buildMockPhotoAnalysis();
+        return {
+          analysis: JSON.parse(response.output_text) as PhotoAnalysis,
+          usage: response.usage
+        };
+      } catch (error) {
+        if (shouldFallbackToMockOpenAI(error)) {
+          return { analysis: buildMockPhotoAnalysis(), usage: undefined };
+        }
+
+        throw error;
+      }
+    },
+    {
+      model,
+      metadata: { mode: input.mode },
+      extractUsage: (result) => ({
+        input: result.usage?.input_tokens,
+        output: result.usage?.output_tokens
+      }),
+      extractOutput: (result) => result.analysis
     }
-
-    throw error;
-  }
+  ).then((result) => result.analysis);
 }
 
 function buildMockPhotoAnalysis(): PhotoAnalysis {

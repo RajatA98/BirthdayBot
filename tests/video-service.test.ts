@@ -21,7 +21,9 @@ vi.mock("@/lib/tools/generate-music-bed", () => ({
 }));
 
 vi.mock("@/lib/langfuse", () => ({
-  getLangfuse: vi.fn(() => null)
+  getLangfuse: vi.fn(() => null),
+  traceTool: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
+  emitTraceEvent: vi.fn()
 }));
 
 import {

@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 
 import { fal } from "@fal-ai/client";
 
+import { traceTool } from "@/lib/langfuse";
+
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 
@@ -25,6 +27,30 @@ export async function muxVoiceOverIntoVideo(
   videoUrl: string,
   voiceOverUrl: string,
   targetDurationSeconds = maxMuxedVideoDurationSeconds,
+  musicBedUrl?: string
+) {
+  return traceTool(
+    "mux-voice-over",
+    () =>
+      muxVoiceOverIntoVideoInner(
+        videoUrl,
+        voiceOverUrl,
+        targetDurationSeconds,
+        musicBedUrl
+      ),
+    {
+      metadata: {
+        targetDurationSeconds,
+        hasMusicBed: Boolean(musicBedUrl)
+      }
+    }
+  );
+}
+
+async function muxVoiceOverIntoVideoInner(
+  videoUrl: string,
+  voiceOverUrl: string,
+  targetDurationSeconds: number,
   musicBedUrl?: string
 ) {
   const ffmpegBin = getFfmpegPath();

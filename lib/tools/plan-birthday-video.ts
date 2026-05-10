@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { traceTool } from "@/lib/langfuse";
 import { DraftRequest, AgentPlan, PhotoAnalysis } from "@/lib/types";
 import { buildMockCaption, buildMockPlan } from "@/lib/agent-plan";
 
@@ -168,6 +169,7 @@ export async function planBirthdayVideo(
   }
 
   const client = new OpenAI({ apiKey });
+  const model = process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini";
   const userContext = [
     `Mode: ${input.mode}`,
     `Birthday name: ${input.birthdayName?.trim() || "Not provided"}`,
@@ -176,46 +178,60 @@ export async function planBirthdayVideo(
     `Photo analysis: ${JSON.stringify(analysis)}`
   ].join("\n");
 
-  try {
-    const response = await client.responses.create({
-      model: process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini",
-      input: [
-        { role: "system", content: systemInstructions },
-        { role: "user", content: userContext }
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          ...combinedSchema
+  return traceTool(
+    "plan-and-caption",
+    async () => {
+      try {
+        const response = await client.responses.create({
+          model,
+          input: [
+            { role: "system", content: systemInstructions },
+            { role: "user", content: userContext }
+          ],
+          text: {
+            format: {
+              type: "json_schema",
+              ...combinedSchema
+            }
+          },
+          ...({ prompt_cache_key: "birthdaybot-plan-v1" } as object)
+        });
+
+        const parsed = JSON.parse(response.output_text) as {
+          plan: AgentPlan;
+          caption: string;
+        };
+
+        return {
+          plan: parsed.plan,
+          caption: parsed.caption.trim(),
+          source: "openai" as const,
+          usage: response.usage
+        };
+      } catch (error) {
+        if (shouldFallbackToMockOpenAI(error)) {
+          const plan = buildMockPlan(input, analysis);
+          return {
+            plan,
+            caption: buildMockCaption(input, plan),
+            source: "mock" as const,
+            usage: undefined
+          };
         }
-      },
-      // prompt_cache_key is supported on the Responses API but not yet
-      // present in this SDK version's typings; cast to keep the rest typed.
-      ...({ prompt_cache_key: "birthdaybot-plan-v1" } as object)
-    });
 
-    const parsed = JSON.parse(response.output_text) as {
-      plan: AgentPlan;
-      caption: string;
-    };
-
-    return {
-      plan: parsed.plan,
-      caption: parsed.caption.trim(),
-      source: "openai" as const
-    };
-  } catch (error) {
-    if (shouldFallbackToMockOpenAI(error)) {
-      const plan = buildMockPlan(input, analysis);
-      return {
-        plan,
-        caption: buildMockCaption(input, plan),
-        source: "mock" as const
-      };
+        throw error;
+      }
+    },
+    {
+      model,
+      metadata: { mode: input.mode, advanced: input.advanced },
+      extractUsage: (result) => ({
+        input: result.usage?.input_tokens,
+        output: result.usage?.output_tokens
+      }),
+      extractOutput: (result) => ({ plan: result.plan, caption: result.caption })
     }
-
-    throw error;
-  }
+  ).then(({ plan, caption, source }) => ({ plan, caption, source }));
 }
 
 function shouldFallbackToMockOpenAI(error: unknown) {

@@ -1,5 +1,6 @@
 import { fal } from "@fal-ai/client";
 
+import { emitTraceEvent } from "@/lib/langfuse";
 import { getServerEnv } from "@/lib/server-env";
 import { muxVoiceOverIntoVideo } from "@/lib/tools/mux-voice-over";
 import { JobLogEntry, JobRecord, JobStage } from "@/lib/types";
@@ -73,6 +74,10 @@ export async function checkVideoGenerationTool(job: JobRecord) {
     const providerStatus = String(status.status);
 
     if (providerStatus === "COMPLETED") {
+      emitTraceEvent("fal-completed", {
+        requestId: job.requestId,
+        providerRequestId: job.providerRequestId
+      });
       let result: Awaited<ReturnType<typeof fal.queue.result>>;
 
       try {
@@ -111,6 +116,11 @@ export async function checkVideoGenerationTool(job: JobRecord) {
       const rawLogs = getStatusLogs(status);
       const providerStage = inferProviderStage(rawLogs);
       const mergedLogs = mergeJobLogs(job.logs, rawLogs);
+      emitTraceEvent("fal-poll", {
+        requestId: job.requestId,
+        stage: providerStage,
+        logsCount: rawLogs?.length || 0
+      });
       return {
         stage: providerStage,
         statusMessage:
