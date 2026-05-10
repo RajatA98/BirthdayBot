@@ -153,8 +153,10 @@ function muxFfmpegArgs({
       "[2:a:0]volume=0.32,apad[music_pre]",
       // Sidechain duck: music is ATTENUATED in real time when the voice key is present
       "[music_pre][voice_key]sidechaincompress=threshold=0.05:ratio=8:attack=8:release=320:makeup=1[music_ducked]",
-      // Final mix: voice + ducked music, then loudness-normalize to social/mobile target (-16 LUFS)
-      "[voice_main][music_ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]"
+      // Final mix: voice + ducked music, then loudness-normalize to social/mobile target (-16 LUFS).
+      // duration=longest keeps the audio bus alive for the full video length — once the voice ends,
+      // the ducked music plays out the rest of the scene instead of cutting the clip short.
+      "[voice_main][music_ducked]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]"
     ].join(";"),
     "-map",
     "0:v:0",
