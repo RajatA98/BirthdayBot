@@ -2,8 +2,6 @@
 
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { CreationForm } from "@/components/creation-form";
-
 import { studioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
 import { AgentPlan, DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
@@ -180,7 +178,8 @@ const styles = [
 const wizardSteps = [
   ["Who", "Name & date"],
   ["Photo", "Their face"],
-  ["Message", "What to say"],
+  ["Prompt", "What you want"],
+  ["Brief", "Edit the plan"],
   ["Preview", "Send it"]
 ];
 const voiceSetupStorageKey = "birthdaybot:new-ui-voice-setup";
@@ -209,7 +208,12 @@ export default function Home() {
       <section className="bb-stage">
         {view.name === "dashboard" ? <Dashboard setView={setView} /> : null}
         {view.name === "wizard" ? (
-          <FullCreationView setView={setView} />
+          <Wizard
+            view={view}
+            setView={setView}
+            voiceClone={voiceClone}
+            onVoiceCloneReady={setVoiceClone}
+          />
         ) : null}
         {view.name === "detail" ? <DetailView id={view.id} setView={setView} /> : null}
         {view.name === "drafts" ? (
@@ -225,26 +229,6 @@ export default function Home() {
         {view.name === "settings" ? <SettingsView voiceClone={voiceClone} /> : null}
       </section>
     </main>
-  );
-}
-
-function FullCreationView({ setView }: { setView: (view: View) => void }) {
-  return (
-    <div className="bb-scroll-view">
-      <div className="bb-creation-shell">
-        <header className="bb-creation-header">
-          <button
-            type="button"
-            className="bb-text-button"
-            onClick={() => setView({ name: "dashboard" })}
-          >
-            ← Back to dashboard
-          </button>
-          <p className="bb-creation-eyebrow">New birthday video</p>
-        </header>
-        <CreationForm />
-      </div>
-    </div>
   );
 }
 
@@ -489,6 +473,15 @@ function Wizard({
     phase: "idle",
     message: "Ready to generate the final birthday video."
   });
+  // Brief-stage state: the plan + caption the user is editing before
+  // generation. Populated by /api/plan when entering Brief; flows into
+  // /api/generate when the user clicks Generate.
+  const [briefPlan, setBriefPlan] = useState<AgentPlan | null>(null);
+  const [briefCaption, setBriefCaption] = useState("");
+  const [briefRequestId, setBriefRequestId] = useState("");
+  const [briefDraft, setBriefDraft] = useState<DraftRequest | null>(null);
+  const [briefError, setBriefError] = useState("");
+  const [briefLoading, setBriefLoading] = useState(false);
   const step = view.step;
 
   useEffect(() => {
@@ -524,46 +517,69 @@ function Wizard({
     setView({ name: "wizard", step: nextStep, friend: draft });
   }
 
-  async function generateVideo() {
+  async function loadBrief() {
     if (!draft.photoDataUrl) {
-      setGeneration({
-        phase: "failed",
-        message: "Upload a real photo before generating the video.",
-        error: "The dashboard placeholder looks cute, but fal.ai needs an uploaded image file."
-      });
+      setBriefError("Upload a photo on the previous step first.");
+      return;
+    }
+    if (!draft.message?.trim()) {
+      setBriefError("Add a quick prompt on the previous step first.");
       return;
     }
 
-    if (!voiceClone.ready || !voiceClone.voiceSampleDataUrl) {
+    setBriefLoading(true);
+    setBriefError("");
+    try {
+      const requestDraft = buildSimpleDraftRequest(draft, voiceClone);
+      const planRecord = await studioApi.createPlan(requestDraft);
+      setBriefDraft(requestDraft);
+      setBriefPlan(planRecord.plan);
+      setBriefCaption(planRecord.caption);
+      setBriefRequestId(planRecord.requestId);
+    } catch (error) {
+      setBriefError(
+        error instanceof Error ? error.message : "Could not build the brief."
+      );
+    } finally {
+      setBriefLoading(false);
+    }
+  }
+
+  async function generateVideo() {
+    if (!briefPlan || !briefDraft) {
       setGeneration({
         phase: "failed",
-        message: "Set up your voice sample before generating this birthday video.",
-        error: "Record or upload a short voice sample below. BirthdayBot will use it when this video is generated."
+        message: "Build the brief first.",
+        error: "Open the Brief step and let it load before generating."
       });
       return;
     }
-
-    const requestDraft = buildDraftRequest(draft, voiceClone);
 
     try {
       setGeneration({
         phase: "planning",
-        message: "Building the birthday brief."
+        message: "Sending the brief to the video model."
       });
 
-      const planRecord = await studioApi.createPlan(requestDraft);
+      const planRecord: PlanRecord = {
+        requestId: briefRequestId,
+        draft: briefDraft,
+        plan: briefPlan,
+        caption: briefCaption,
+        createdAt: Date.now()
+      };
+
+      const generationJob = await studioApi.startGeneration({
+        ...planRecord,
+        cachedProviderVoiceId: voiceClone.providerVoiceId
+      });
 
       setGeneration({
         phase: "generating",
         message: "Starting video generation.",
         requestId: planRecord.requestId,
-        plan: planRecord.plan,
-        caption: planRecord.caption
-      });
-
-      const generationJob = await studioApi.startGeneration({
-        ...planRecord,
-        cachedProviderVoiceId: voiceClone.providerVoiceId
+        plan: briefPlan,
+        caption: briefCaption
       });
 
       const handleJob = (job: JobRecord) => {
@@ -577,8 +593,8 @@ function Wizard({
           phase: job.stage === "completed" ? "completed" : job.stage === "failed" ? "failed" : "generating",
           message: job.statusMessage,
           requestId: planRecord.requestId,
-          plan: planRecord.plan,
-          caption: job.caption || planRecord.caption,
+          plan: briefPlan,
+          caption: job.caption || briefCaption,
           job,
           videoUrl: job.videoUrl,
           voiceOverUrl: job.voiceOverUrl,
@@ -614,8 +630,26 @@ function Wizard({
       <div className="bb-wizard-body">
         {step === 0 ? <StepWho draft={draft} update={update} /> : null}
         {step === 1 ? <StepPhoto draft={draft} update={update} /> : null}
-        {step === 2 ? <StepMessage draft={draft} update={update} /> : null}
+        {step === 2 ? (
+          <StepPrompt
+            draft={draft}
+            update={update}
+            voiceClone={voiceClone}
+            onVoiceCloneReady={onVoiceCloneReady}
+          />
+        ) : null}
         {step === 3 ? (
+          <StepBrief
+            plan={briefPlan}
+            caption={briefCaption}
+            loading={briefLoading}
+            error={briefError}
+            onPlanChange={setBriefPlan}
+            onCaptionChange={setBriefCaption}
+            onLoad={loadBrief}
+          />
+        ) : null}
+        {step === 4 ? (
           <StepPreview
             draft={draft}
             update={update}
@@ -634,10 +668,24 @@ function Wizard({
         <button className="bb-text-button" onClick={() => (step > 0 ? go(step - 1) : setView({ name: "dashboard" }))}>
           <Icon name="arrowLeft" /> {step > 0 ? "Back" : "Cancel"}
         </button>
-        <span>step {step + 1} of 4</span>
-        {step < 3 ? (
-          <button className="bb-sticker-button" onClick={() => go(step + 1)}>
-            Next <Icon name="arrowRight" />
+        <span>step {step + 1} of 5</span>
+        {step < 4 ? (
+          <button
+            className="bb-sticker-button"
+            onClick={() => {
+              const next = step + 1;
+              if (next === 3 && !briefPlan && !briefLoading) {
+                void loadBrief();
+              }
+              go(next);
+            }}
+            disabled={
+              (step === 1 && !draft.photoDataUrl) ||
+              (step === 2 && !draft.message?.trim()) ||
+              (step === 3 && (!briefPlan || briefLoading))
+            }
+          >
+            {step === 2 ? "Build the brief" : "Next"} <Icon name="arrowRight" />
           </button>
         ) : (
           <button className="bb-sticker-button" onClick={() => setView({ name: "dashboard" })}>
@@ -757,41 +805,211 @@ function StepPhoto({ draft, update }: { draft: Friend; update: (patch: Partial<F
   );
 }
 
-function StepMessage({ draft, update }: { draft: Friend; update: (patch: Partial<Friend>) => void }) {
+function StepPrompt({
+  draft,
+  update,
+  voiceClone,
+  onVoiceCloneReady
+}: {
+  draft: Friend;
+  update: (patch: Partial<Friend>) => void;
+  voiceClone: VoiceCloneState;
+  onVoiceCloneReady: (clone: VoiceCloneState) => void;
+}) {
   return (
     <section className="bb-step-panel">
       <Heading
-        kicker="Step 3 * Words & vibe"
-        title={<>What should the <mark className="pink">message</mark> say?</>}
-        sub="Type it the way you'd say it. We'll match the cadence to your saved voice clone."
+        kicker="Step 3 * What you want"
+        title={<>Tell us what kind of <mark className="pink">birthday video</mark> to make.</>}
+        sub="Say it the way you'd describe it to a friend. We'll turn this into a director's brief on the next step — and you can edit anything you don't love."
       />
-      <Field label="Message" hint={`${draft.message.length} / 280`}>
+      <Field
+        label="Prompt"
+        hint={`${(draft.message || "").length} / 500`}
+      >
         <textarea
           value={draft.message}
-          maxLength={280}
+          maxLength={500}
+          rows={6}
           onChange={(event) => update({ message: event.target.value })}
-          placeholder="Maya!! Another year of being my favorite kind of chaos. Hope your 31st is full of cold martinis..."
+          placeholder="Make it feel like a warm cinematic rooftop birthday at golden hour, with the two of us laughing about that time we missed the last train home."
         />
       </Field>
-      <div className="bb-rewrite-row">
-        {["Make it shorter", "Funnier", "More heartfelt", "Add an inside joke"].map((label) => (
-          <button key={label}><Icon name="sparkle" /> {label}</button>
-        ))}
+      <div className="bb-voice-block">
+        {voiceClone.ready ? (
+          <section className="bb-voice-ready-card">
+            <span className="bb-card-heading">Account voice</span>
+            <strong>Voice clone ready</strong>
+            <small>
+              {voiceClone.voiceCloneName || "Saved voice"} will be reused
+              for every birthday video — pulled from your saved setup so
+              you don't have to redo it.
+            </small>
+            <button
+              className="bb-outline-button"
+              onClick={() => onVoiceCloneReady({ ready: false })}
+            >
+              <Icon name="mic" /> Re-record voice
+            </button>
+          </section>
+        ) : (
+          <VoiceSetupCard onReady={onVoiceCloneReady} />
+        )}
       </div>
-      <div className="bb-style-grid">
-        {styles.map((style) => (
-          <button
-            key={style.id}
-            className={draft.style === style.id ? "is-selected" : ""}
-            onClick={() => update({ style: style.id })}
-          >
-            <Icon name={style.icon} />
-            <strong>{style.label}</strong>
-            <small>{style.hint}</small>
-            {draft.style === style.id ? <em><Icon name="check" /></em> : null}
-          </button>
-        ))}
+    </section>
+  );
+}
+
+function StepBrief({
+  plan,
+  caption,
+  loading,
+  error,
+  onPlanChange,
+  onCaptionChange,
+  onLoad
+}: {
+  plan: AgentPlan | null;
+  caption: string;
+  loading: boolean;
+  error: string;
+  onPlanChange: (plan: AgentPlan) => void;
+  onCaptionChange: (caption: string) => void;
+  onLoad: () => void;
+}) {
+  useEffect(() => {
+    if (!plan && !loading && !error) {
+      onLoad();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="bb-step-panel">
+        <Heading
+          kicker="Step 4 * Director's brief"
+          title={<>Building the <mark className="yellow">brief</mark>...</>}
+          sub="Hang on a few seconds while we draft a plan you can edit."
+        />
+        <div className="bb-brief-loading">
+          <Icon name="sparkle" /> Drafting the brief from your prompt...
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="bb-step-panel">
+        <Heading
+          kicker="Step 4 * Director's brief"
+          title={<>Couldn't <mark className="pink">build</mark> the brief.</>}
+          sub={error}
+        />
+        <button className="bb-sticker-button" onClick={onLoad}>
+          Try again
+        </button>
+      </section>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <section className="bb-step-panel">
+        <Heading
+          kicker="Step 4 * Director's brief"
+          title={<>Almost <mark className="yellow">there</mark>.</>}
+          sub="Click below and we'll draft a brief from your prompt — then you can edit any part of it before we render."
+        />
+        <button className="bb-sticker-button" onClick={onLoad}>
+          Build the brief
+        </button>
+      </section>
+    );
+  }
+
+  function field<K extends keyof AgentPlan>(key: K, value: AgentPlan[K]) {
+    onPlanChange({ ...plan!, [key]: value });
+  }
+
+  return (
+    <section className="bb-step-panel">
+      <Heading
+        kicker="Step 4 * Director's brief"
+        title={<>Edit the <mark className="yellow">brief</mark> if you want.</>}
+        sub="Everything below is editable. Tweak the message, adjust the vibe, sharpen the scene direction — then move to Generate."
+      />
+      <div className="bb-brief-grid">
+        <Field label="Title">
+          <input
+            value={plan.title}
+            onChange={(e) => field("title", e.target.value)}
+          />
+        </Field>
+        <Field label="Concept">
+          <textarea
+            value={plan.concept}
+            rows={2}
+            onChange={(e) => field("concept", e.target.value)}
+          />
+        </Field>
+        <Field label="Birthday message" hint={`${caption.length} chars`}>
+          <textarea
+            value={caption}
+            rows={3}
+            onChange={(e) => onCaptionChange(e.target.value)}
+          />
+        </Field>
+        <Field label="Vibe">
+          <textarea
+            value={plan.vibe}
+            rows={2}
+            onChange={(e) => field("vibe", e.target.value)}
+          />
+        </Field>
+        <Field label="Scene direction">
+          <textarea
+            value={plan.sceneDirection}
+            rows={3}
+            onChange={(e) => field("sceneDirection", e.target.value)}
+          />
+        </Field>
+        <Field label="Motion direction">
+          <textarea
+            value={plan.motionDirection}
+            rows={2}
+            onChange={(e) => field("motionDirection", e.target.value)}
+          />
+        </Field>
+        <Field label="Surprise factor">
+          <textarea
+            value={plan.surpriseFactor}
+            rows={2}
+            onChange={(e) => field("surpriseFactor", e.target.value)}
+          />
+        </Field>
+        <Field label="Keep from photo" hint="One cue per line">
+          <textarea
+            value={plan.keepFromPhoto.join("\n")}
+            rows={Math.max(2, plan.keepFromPhoto.length)}
+            onChange={(e) =>
+              field(
+                "keepFromPhoto",
+                e.target.value
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+              )
+            }
+          />
+        </Field>
       </div>
+      <p className="bb-brief-locked">
+        Identity guardrails (subjectCount, identity anchors, scene
+        guardrails) are read-only — they're what stops the model from
+        swapping out the people in the video.
+      </p>
     </section>
   );
 }
@@ -846,15 +1064,15 @@ function StepPreview({
           {!generation.videoUrl ? <PostcardCaption friend={draft} /> : null}
         </div>
         <aside className="bb-preview-side">
-          {!voiceClone.ready ? (
-            <VoiceSetupCard onReady={onVoiceCloneReady} />
-          ) : (
-            <section className="bb-voice-ready-card">
-              <span className="bb-card-heading">Account voice</span>
-              <strong>Voice clone ready</strong>
-              <small>{voiceClone.voiceCloneName || "Saved voice"} will be reused for every birthday video.</small>
-            </section>
-          )}
+          <section className={voiceClone.ready ? "bb-voice-ready-card" : "bb-voice-ready-card is-stock"}>
+            <span className="bb-card-heading">Voice</span>
+            <strong>{voiceClone.ready ? "Voice clone ready" : "Stock narrator voice"}</strong>
+            <small>
+              {voiceClone.ready
+                ? `${voiceClone.voiceCloneName || "Saved voice"} will narrate this video — pulled from your saved setup.`
+                : "We'll use a stock narrator. Set up a voice clone on the Prompt step to make it yours."}
+            </small>
+          </section>
           <section>
             <span className="bb-card-heading">Sends on <StatusChip status="scheduled" /></span>
             <strong>{draft.dateLong || draft.date || "Pick a date"}</strong>
@@ -874,11 +1092,10 @@ function StepPreview({
             <Recipe label="Photo" value={draft.photoName || "maya-grad-2024.jpg"} ok={draft.photo} />
             <Recipe
               label="Voice"
-              value={voiceClone.ready ? "your cloned voice * saved" : "set up once above"}
-              ok={voiceClone.ready}
+              value={voiceClone.ready ? "your cloned voice * saved" : "stock narrator (no setup)"}
+              ok={true}
             />
-            <Recipe label="Message" value={draft.message || "Needs message"} ok={Boolean(draft.message)} />
-            <Recipe label="Style" value={styleLabel(draft.style)} ok={Boolean(draft.style)} />
+            <Recipe label="Prompt" value={draft.message || "Needs prompt"} ok={Boolean(draft.message)} />
           </section>
           <section className={`bb-generation-card is-${generation.phase}`}>
             <span className="bb-card-heading">Video output</span>
@@ -1409,6 +1626,24 @@ function blankFriend(): Friend {
     message: "",
     style: "sing-along",
     delivery: "text"
+  };
+}
+
+function buildSimpleDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
+  const name = friend.firstName || firstName(friend.name) || friend.name;
+  return {
+    mode: "simple",
+    birthdayName: name,
+    prompt: friend.message?.trim() || `Make a warm birthday video for ${name || "my friend"}.`,
+    photoName: friend.photoName || `${name || "birthday"}-photo.png`,
+    photoDataUrl: friend.photoDataUrl || "",
+    voiceSampleName: voiceClone.voiceSampleName,
+    voiceSampleDataUrl: voiceClone.voiceSampleDataUrl,
+    voiceConsent: Boolean(voiceClone.voiceSampleDataUrl),
+    voiceCloneId: voiceClone.providerVoiceId,
+    voiceCloneName: voiceClone.voiceCloneName,
+    voiceMode: "narrate",
+    advanced: defaultAdvancedSettings
   };
 }
 
