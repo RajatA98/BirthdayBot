@@ -4,7 +4,10 @@ import { getLangfuse } from "@/lib/langfuse";
 import { getServerEnv } from "@/lib/server-env";
 import { buildFalInput } from "@/lib/tools/build-video-input";
 import { createVoiceOver } from "@/lib/tools/create-voice-over";
-import { generateAiMusicBed } from "@/lib/tools/generate-music-bed";
+import {
+  generateAiMusicBed,
+  generateBirthdaySong
+} from "@/lib/tools/generate-music-bed";
 import { JobRecord, PlanRecord } from "@/lib/types";
 
 export async function startVideoGenerationTool(
@@ -28,32 +31,46 @@ export async function startVideoGenerationTool(
   const requestedVoiceOver = Boolean(
     planRecord.draft.voiceSampleDataUrl || planRecord.draft.voiceSampleClips?.length
   );
+  const isSongMode = planRecord.draft.voiceMode === "song";
 
   const photoStartedAt = Date.now();
   const voiceStartedAt = Date.now();
   const musicStartedAt = Date.now();
 
+  // Song mode replaces voice + ambient-music with a single sung song that
+  // becomes the entire audio track. Skip voice cloning and the
+  // instrumental music-bed generation; call the song path instead.
   const [uploadedUrl, voiceOver, musicBedUrl] = await Promise.all([
     uploadPhoto(planRecord),
-    createVoiceOver(planRecord, job).then((result) => {
-      logTimedTask("voice_over", voiceStartedAt, {
-        outcome: result.voiceOverError
-          ? "error"
-          : result.voiceOverUrl
-            ? "ready"
-            : "skipped",
-        ...(result.voiceOverError
-          ? { errorMessage: result.voiceOverError }
-          : {})
-      });
-      return result;
-    }),
-    uploadMusicBed(planRecord, targetDurationSeconds).then((url) => {
-      logTimedTask("music_bed", musicStartedAt, {
-        outcome: url ? "ready" : "skipped"
-      });
-      return url;
-    })
+    isSongMode
+      ? Promise.resolve({} as Awaited<ReturnType<typeof createVoiceOver>>)
+      : createVoiceOver(planRecord, job).then((result) => {
+          logTimedTask("voice_over", voiceStartedAt, {
+            outcome: result.voiceOverError
+              ? "error"
+              : result.voiceOverUrl
+                ? "ready"
+                : "skipped",
+            ...(result.voiceOverError
+              ? { errorMessage: result.voiceOverError }
+              : {})
+          });
+          return result;
+        }),
+    isSongMode
+      ? uploadBirthdaySong(planRecord, targetDurationSeconds).then((url) => {
+          logTimedTask("birthday_song", musicStartedAt, {
+            outcome: url ? "ready" : "skipped",
+            songStyle: planRecord.draft.songStyle || "Acoustic"
+          });
+          return url;
+        })
+      : uploadMusicBed(planRecord, targetDurationSeconds).then((url) => {
+          logTimedTask("music_bed", musicStartedAt, {
+            outcome: url ? "ready" : "skipped"
+          });
+          return url;
+        })
   ]);
 
   logTimedTask("photo_upload", photoStartedAt, { outcome: "ready" });
@@ -143,6 +160,7 @@ export async function startVideoGenerationTool(
     providerRequestId: result.request_id,
     providerEndpoint: endpoint,
     targetDurationSeconds,
+    voiceMode: planRecord.draft.voiceMode || "narrate",
     logs: seededLogs
   };
 }
@@ -155,6 +173,33 @@ async function uploadPhoto(planRecord: PlanRecord) {
   return fal.storage.upload(
     dataUrlToBlob(planRecord.draft.photoDataUrl, planRecord.draft.photoName)
   );
+}
+
+async function uploadBirthdaySong(
+  planRecord: PlanRecord,
+  targetDurationSeconds: number
+) {
+  const buffer = await generateBirthdaySong(
+    planRecord.draft,
+    planRecord.plan,
+    planRecord.caption,
+    targetDurationSeconds
+  );
+  if (!buffer || buffer.byteLength === 0) {
+    return undefined;
+  }
+  try {
+    const file = new File([new Uint8Array(buffer)], "birthday-song.mp3", {
+      type: "audio/mpeg"
+    });
+    return await fal.storage.upload(file);
+  } catch (error) {
+    console.warn(
+      "[birthdaybot:start_video_generation] birthday song upload failed",
+      error
+    );
+    return undefined;
+  }
 }
 
 async function uploadMusicBed(

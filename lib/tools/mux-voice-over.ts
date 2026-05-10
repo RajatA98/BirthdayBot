@@ -247,6 +247,100 @@ function partyMusicLavfiSource() {
   ].join("");
 }
 
+export async function muxSongIntoVideo(
+  videoUrl: string,
+  songUrl: string,
+  targetDurationSeconds = maxMuxedVideoDurationSeconds
+) {
+  return traceTool(
+    "mux-song",
+    () =>
+      muxSongIntoVideoInner(videoUrl, songUrl, targetDurationSeconds),
+    {
+      metadata: { targetDurationSeconds }
+    }
+  );
+}
+
+async function muxSongIntoVideoInner(
+  videoUrl: string,
+  songUrl: string,
+  targetDurationSeconds: number
+) {
+  const ffmpegBin = getFfmpegPath();
+  if (!ffmpegBin) {
+    throw new Error("ffmpeg binary is not available.");
+  }
+
+  const workspace = await mkdtemp(join(tmpdir(), "birthdaybot-song-"));
+
+  try {
+    const [video, song] = await Promise.all([
+      mediaUrlToBuffer(videoUrl),
+      mediaUrlToBuffer(songUrl)
+    ]);
+    const inputVideo = join(workspace, "input.mp4");
+    const inputSong = join(workspace, "song.mp3");
+    const outputVideo = join(workspace, "song-output.mp4");
+
+    await writeFile(inputVideo, video.bytes);
+    await writeFile(inputSong, song.bytes);
+
+    const muxDuration = Math.min(
+      Math.max(targetDurationSeconds || defaultVideoDurationSeconds, 1),
+      maxMuxedVideoDurationSeconds
+    );
+
+    await execFileAsync(ffmpegBin, [
+      "-y",
+      "-i",
+      inputVideo,
+      "-i",
+      inputSong,
+      "-t",
+      String(muxDuration),
+      // Song is the only audio track. Loudnorm to social-mobile target so
+      // it sits next to other media at parity volume; alimiter catches
+      // any final transients.
+      "-filter_complex",
+      "[1:a:0]loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]",
+      "-map",
+      "0:v:0",
+      "-map",
+      "[aout]",
+      "-vf",
+      "scale='if(gte(iw,ih),-2,720)':'if(gte(iw,ih),720,-2)'",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-b:v",
+      `${finalVideoBitrateKbps}k`,
+      "-maxrate",
+      `${finalVideoBitrateKbps}k`,
+      "-bufsize",
+      `${finalVideoBitrateKbps * 2}k`,
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      `${finalVideoAudioBitrateKbps}k`,
+      "-shortest",
+      "-movflags",
+      "+faststart",
+      outputVideo
+    ]);
+
+    const outputBytes = await readFile(outputVideo);
+    return fal.storage.upload(
+      new File([outputBytes], "birthday-song-video.mp4", { type: "video/mp4" })
+    );
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+}
+
 async function mediaUrlToBuffer(url: string) {
   if (url.startsWith("data:")) {
     const [header, data] = url.split(",");

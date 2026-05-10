@@ -13,6 +13,14 @@ export type AdvancedSettings = {
 
 export type VoiceMode = "narrate" | "speak-yourself" | "song";
 
+export type SongStyle =
+  | "Mariachi"
+  | "Bhangra"
+  | "Lo-fi"
+  | "Gospel"
+  | "80s power ballad"
+  | "Acoustic";
+
 export type DraftRequest = {
   mode: Mode;
   birthdayName?: string;
@@ -25,6 +33,7 @@ export type DraftRequest = {
   voiceConsent?: boolean;
   voiceMode?: VoiceMode;
   userMessageDataUrl?: string;
+  songStyle?: SongStyle;
   advanced: AdvancedSettings;
 };
 
@@ -95,6 +104,7 @@ export type JobRecord = {
   providerVoiceId?: string;
   targetDurationSeconds?: number;
   voiceOverError?: string;
+  voiceMode?: VoiceMode;
   logs?: JobLogEntry[];
   createdAt: number;
 };

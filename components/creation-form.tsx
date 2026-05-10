@@ -17,8 +17,18 @@ import {
   DraftRequest,
   JobRecord,
   PlanRecord,
+  SongStyle,
   VoiceMode
 } from "@/lib/types";
+
+const songStyles: SongStyle[] = [
+  "Mariachi",
+  "Bhangra",
+  "Lo-fi",
+  "Gospel",
+  "80s power ballad",
+  "Acoustic"
+];
 
 const sessionStorageKey = "birthdaybot:active";
 const voiceDraftStorageKey = "birthdaybot:voice-draft";
@@ -107,6 +117,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [voiceQualityWarning, setVoiceQualityWarning] = useState("");
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("narrate");
+  const [songStyle, setSongStyle] = useState<SongStyle>("Acoustic");
   const [userMessageDataUrl, setUserMessageDataUrl] = useState("");
   const [userMessageDuration, setUserMessageDuration] = useState(0);
   const [userMessageRecording, setUserMessageRecording] = useState(false);
@@ -714,6 +725,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       voiceConsent: voiceSampleDataUrl ? voiceConsent : undefined,
       voiceMode,
       userMessageDataUrl: userMessageDataUrl || undefined,
+      songStyle: voiceMode === "song" ? songStyle : undefined,
       advanced
     };
   }
@@ -824,6 +836,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     clearCachedVoiceId();
     setMode("simple");
     setVoiceMode("narrate");
+    setSongStyle("Acoustic");
     setUserMessageDataUrl("");
     setUserMessageDuration(0);
     setPrompt("");
@@ -1215,15 +1228,38 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
                 : "voice-mode-pill"
             }
             onClick={() => setVoiceMode("song")}
-            disabled
-            title="Coming soon"
           >
             <strong>Sing it</strong>
-            <span>AI-generated birthday song. Coming soon.</span>
+            <span>AI-generated birthday song. Pick a style.</span>
           </button>
         </div>
+        {voiceMode === "song" ? (
+          <div
+            className="song-style-grid"
+            role="radiogroup"
+            aria-label="Song style"
+          >
+            {songStyles.map((style) => (
+              <button
+                key={style}
+                type="button"
+                role="radio"
+                aria-checked={songStyle === style}
+                className={
+                  songStyle === style
+                    ? "song-style-chip active"
+                    : "song-style-chip"
+                }
+                onClick={() => setSongStyle(style)}
+              >
+                {style}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </section>
 
+      {voiceMode !== "song" ? (
       <section className="voice-recorder" aria-label="Voice input">
         <div className="voice-recorder-header">
           <div>
@@ -1432,6 +1468,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         ) : null}
         {recordingError ? <p className="field-error">{recordingError}</p> : null}
       </section>
+      ) : null}
 
       {voiceMode === "speak-yourself" ? (
         <section className="voice-message-card" aria-label="Your spoken message">

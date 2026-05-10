@@ -517,6 +517,35 @@ select:focus,
   cursor: not-allowed;
 }
 
+.song-style-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.song-style-chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.92rem;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.song-style-chip.active {
+  border-color: rgba(216, 94, 53, 0.42);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+  transform: translateY(-1px);
+}
+
 .voice-message-card {
   border-radius: 24px;
   border: 1px solid var(--line);

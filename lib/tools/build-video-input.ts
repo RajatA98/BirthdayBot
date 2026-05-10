@@ -112,6 +112,10 @@ function buildMusicDirection(draft: DraftRequest) {
   const musicVibe =
     draft.mode === "advanced" ? draft.advanced.musicVibe : "Uplifting";
 
+  if (draft.voiceMode === "song") {
+    return `Do not generate any spoken narration, synthetic dialogue, or native soundtrack audio. Leave the MP4 audio-free — a custom ${draft.songStyle || "acoustic"}-style birthday song will be muxed in as the entire audio track after generation. The video should pulse with the energy of a music video.`;
+  }
+
   if (hasVoiceSample(draft)) {
     return "Do not generate spoken narration, synthetic dialogue, or native soundtrack audio. Leave the MP4 audio-free because the user's cloned ElevenLabs narration will be muxed into the final video after generation.";
   }
