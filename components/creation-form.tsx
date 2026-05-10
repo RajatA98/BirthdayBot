@@ -752,16 +752,26 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <p>{caption}</p>
         </section>
 
-        {voiceSampleName ? (
-          <section className="summary-card">
-            <p className="summary-label">Narration voice</p>
+        <section className="summary-card">
+          <p className="summary-label">Narration voice</p>
+          {voiceSampleName ? (
             <p>
-              ElevenLabs will clone {voiceSampleName} for the voice-over, then
-              BirthdayBot will use the cloned voice to narrate the final
-              birthday caption.
+              ElevenLabs will try to clone {voiceSampleName} for a personalized
+              voice-over. If cloning is unavailable, narration falls back to a
+              stock voice matched to the vibe.
             </p>
-          </section>
-        ) : null}
+          ) : (
+            <p>
+              No voice sample provided — narration will use a stock voice
+              matched to the prompt vibe.
+            </p>
+          )}
+          {plan.narrationVoiceCue ? (
+            <p className="subtle-note" style={{ marginTop: 6 }}>
+              Voice cue: <em>{plan.narrationVoiceCue}</em>
+            </p>
+          ) : null}
+        </section>
 
         {statusError ? <p className="field-error">{statusError}</p> : null}
 

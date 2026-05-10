@@ -110,8 +110,17 @@ async function createVoiceOverInner(
   // birthday gets a warm Latin-leaning voice, a soft cinematic one gets
   // a tender voice, etc. Caption text stays as-is — translation is a
   // separate enhancement.
+  //
+  // Resolution order, first hit wins:
+  //   1. ELEVENLABS_STOCK_VOICE_ID env override (force a specific voice)
+  //   2. The agent plan's narrationVoiceCue, mapped through the cue picker
+  //      (cultural accents look up env-configured voice IDs first; English
+  //      vibes fall through to the default catalog).
+  //   3. Legacy keyword pattern matching against the prompt + plan body.
+  //   4. Default: Rachel.
   const stockVoiceId =
     getServerEnv("ELEVENLABS_STOCK_VOICE_ID") ||
+    pickStockVoiceFromCue(planRecord.plan.narrationVoiceCue) ||
     pickStockVoice(planRecord) ||
     defaultStockVoiceId;
 
@@ -170,6 +179,130 @@ const stockVoiceCatalog: StockVoice[] = [
     match: /\b(cinematic|epic|dramatic|movie|trailer|grand|sweeping|hollywood|noir|saga)\b/i
   }
 ];
+
+// Cultural accent voice slots. The default ElevenLabs voice library is
+// English-American leaning, so for authentic non-English accents the user
+// must add voices from the EL voice library to their account and set the
+// matching env var. When the env var is unset, this returns undefined and
+// we fall through to the keyword catalog or the default voice.
+const culturalCueMap: Array<{
+  match: RegExp;
+  envVar: string;
+  fallbackId?: string;
+  label: string;
+}> = [
+  // Spanish / Latin / mariachi → Antoni is a reasonable EN-AM fallback;
+  // an EL Spanish-native voice via env beats it.
+  {
+    match: /(spanish|latino|latina|hispanic|mariachi|salsa|tango|cumbia|fiesta|flamenco|reggaet[oó]n|espa[nñ]ol)/i,
+    envVar: "ELEVENLABS_VOICE_SPANISH",
+    fallbackId: "ErXwobaYiN019PkySvjV", // Antoni
+    label: "Spanish/Latin"
+  },
+  // Indian / Punjabi / Bollywood / bhangra
+  {
+    match: /(indian|punjabi|hindi|bhangra|bollywood|hindustani|desi|sanskrit)/i,
+    envVar: "ELEVENLABS_VOICE_INDIAN",
+    label: "Indian/Punjabi"
+  },
+  // Korean / K-pop
+  {
+    match: /(korean|kpop|k-pop|hallyu|hangul)/i,
+    envVar: "ELEVENLABS_VOICE_KOREAN",
+    label: "Korean"
+  },
+  // Japanese / J-pop / anime
+  {
+    match: /(japanese|jpop|j-pop|anime|nihon|tokyo)/i,
+    envVar: "ELEVENLABS_VOICE_JAPANESE",
+    label: "Japanese"
+  },
+  // African / Afrobeat / Amapiano
+  {
+    match: /(african|afrobeat|amapiano|swahili|nigerian|ghanaian|kenyan|south african)/i,
+    envVar: "ELEVENLABS_VOICE_AFRICAN",
+    label: "African"
+  },
+  // Arabic / Middle Eastern
+  {
+    match: /(arabic|persian|farsi|middle east|arab|levantine|maghreb)/i,
+    envVar: "ELEVENLABS_VOICE_ARABIC",
+    label: "Arabic/Persian"
+  },
+  // Mandarin / Cantonese
+  {
+    match: /(mandarin|cantonese|chinese|guangzhou|beijing|shanghai)/i,
+    envVar: "ELEVENLABS_VOICE_MANDARIN",
+    label: "Mandarin/Cantonese"
+  },
+  // Built-in non-American English accents available in the default catalog:
+  {
+    match: /(british|english accent|posh|royal|cockney|london)/i,
+    envVar: "ELEVENLABS_VOICE_BRITISH",
+    fallbackId: "JBFqnCBsd6RMkjVDRZzb", // George
+    label: "British"
+  },
+  {
+    match: /(australian|aussie)/i,
+    envVar: "ELEVENLABS_VOICE_AUSTRALIAN",
+    fallbackId: "IKne3meq5aSn9XLyUdCD", // Charlie
+    label: "Australian"
+  }
+];
+
+// Vibe cues that don't carry a cultural accent — pick by gender + tone
+// from the default English-American catalog.
+const vibeCueMap: Array<{ match: RegExp; voiceId: string; label: string }> = [
+  {
+    match: /(soft|tender|intimate|whisper|gentle|cozy|sweet)/i,
+    voiceId: "EXAVITQu4vr4xnSDxMaL",
+    label: "Bella"
+  },
+  {
+    match: /(emotional|youthful female|young female|teen female)/i,
+    voiceId: "MF3mGyEYCl7XYWbV9V6O",
+    label: "Elli"
+  },
+  {
+    match: /(deep|narrative|cinematic|grand|sweeping|trailer|epic|dramatic)/i,
+    voiceId: "pNInz6obpgDQGcFmaJgB",
+    label: "Adam"
+  },
+  {
+    match: /(playful|festive|hype|excited|exciting|party|wild|crazy|lively|disco|confident female)/i,
+    voiceId: "AZnzlk1XvdvUeBnXmlld",
+    label: "Domi"
+  },
+  {
+    match: /(deep male|young male|raspy)/i,
+    voiceId: "yoZ06aMxZJJ28mfd3POQ",
+    label: "Sam"
+  }
+];
+
+export function pickStockVoiceFromCue(cue?: string): string | undefined {
+  if (!cue) return undefined;
+  const lower = cue.toLowerCase();
+
+  for (const entry of culturalCueMap) {
+    if (entry.match.test(lower)) {
+      const fromEnv = getServerEnv(entry.envVar);
+      if (fromEnv) return fromEnv;
+      if (entry.fallbackId) return entry.fallbackId;
+      // Cultural cue matched but no voice configured — fall through to
+      // the vibe layer so we still pick something tonally close.
+      break;
+    }
+  }
+
+  for (const entry of vibeCueMap) {
+    if (entry.match.test(lower)) {
+      return entry.voiceId;
+    }
+  }
+
+  return undefined;
+}
 
 function pickStockVoice(planRecord: PlanRecord): string | undefined {
   const haystack = [

@@ -39,6 +39,7 @@ export type AgentPlan = {
   sceneGuardrails: string[];
   safePrompt: string;
   negativePrompt: string;
+  narrationVoiceCue: string;
 };
 
 export type PhotoAnalysis = {

@@ -42,7 +42,8 @@ export function buildMockPlan(
       motion
     }),
     negativePrompt:
-      "No extra people. No duplicate person. No identity drift. No face replacement. No gender swap. No outfit replacement. No subject removal. No scene rewrite that removes one of the original people."
+      "No extra people. No duplicate person. No identity drift. No face replacement. No gender swap. No outfit replacement. No subject removal. No scene rewrite that removes one of the original people.",
+    narrationVoiceCue: "warm American female, intimate"
   };
 }
 

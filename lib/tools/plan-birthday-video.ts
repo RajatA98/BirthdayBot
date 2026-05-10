@@ -21,7 +21,8 @@ const planSchema = {
     "identityAnchors",
     "sceneGuardrails",
     "safePrompt",
-    "negativePrompt"
+    "negativePrompt",
+    "narrationVoiceCue"
   ],
   properties: {
     title: { type: "string" },
@@ -49,7 +50,12 @@ const planSchema = {
       minItems: 1
     },
     safePrompt: { type: "string" },
-    negativePrompt: { type: "string" }
+    negativePrompt: { type: "string" },
+    narrationVoiceCue: {
+      type: "string",
+      description:
+        "One short phrase describing the ideal narration voice based on the prompt and scene. Format: '<accent/region>, <gender/age>, <energy/character>'. Examples: 'warm American female, intimate', 'energetic Spanish-leaning male, festive', 'Punjabi-accented male, mid-energy', 'deep British male, cinematic'. The downstream voice picker uses this as a hint."
+    }
   }
 } as const;
 
@@ -103,6 +109,14 @@ const systemInstructions = [
   "- The Constraints section MUST restate the identity guardrails: preserve exactly N subjects, keep the original cast only, do not add or remove people.",
   "- Embed identityAnchors and clothing cues from the photo analysis verbatim into Important details.",
   "",
+  "WHAT GOES IN narrationVoiceCue",
+  "- A SHORT phrase (3-8 words) hinting at the ideal voice character.",
+  "- Format: '<accent/region>, <gender/age>, <energy/character>'.",
+  "- Examples: 'warm American female, intimate', 'energetic Spanish-leaning male, festive', 'Punjabi-accented male, mid-energy', 'deep British male, cinematic', 'soft American female, tender'.",
+  "- Lean into cultural cues from the prompt. Mariachi -> Spanish-leaning. Bhangra -> Punjabi/Indian. K-pop -> Korean-leaning. Afrobeat -> African-leaning. J-pop / anime -> Japanese-leaning.",
+  "- Default to 'warm American female, intimate' when the prompt has no cultural cue.",
+  "- This is a HINT, not a hard requirement. The downstream voice library may or may not have an exact match.",
+  "",
   "WHAT GOES IN negativePrompt",
   "- A comma-separated list of things the model must avoid.",
   "- Always include: identity drift, face replacement, gender swap, outfit replacement, extra people, duplicate person, subject removal, unnatural anatomy, distorted hands, garbled text.",
@@ -137,7 +151,8 @@ const systemInstructions = [
   '    "identityAnchors": ["Person on left with shoulder-length dark hair", "Person on right in a navy jacket"],',
   '    "sceneGuardrails": ["Preserve exactly two people", "No identity drift", "Keep the original rooftop setting"],',
   '    "safePrompt": "Scene: rooftop at golden hour, the two original people from the source photo, soft city skyline behind. Subject motion: gentle smiles, eye contact, a small clink of glasses. Camera: slow push-in then gentle reframe to include a small birthday cake on a low table. Lighting: warm golden-hour key with soft string-light fill. Important details: shoulder-length dark hair on left, navy jacket on right, both faces clearly recognizable, original closeness preserved. Constraints: preserve exactly two people, keep the original cast only, do not add or remove anyone, no identity drift.",',
-  '    "negativePrompt": "identity drift, face replacement, gender swap, outfit replacement, extra people, duplicate person, subject removal, unnatural anatomy, distorted hands, garbled text"',
+  '    "negativePrompt": "identity drift, face replacement, gender swap, outfit replacement, extra people, duplicate person, subject removal, unnatural anatomy, distorted hands, garbled text",',
+  '    "narrationVoiceCue": "warm American female, intimate"',
   "  },",
   '  "caption": "Happy birthday to one of my favorite people. I wanted this to feel a little more personal than a regular text. I hope this year gives you the kind of surprises that make you pause, laugh, and feel deeply loved. Happy birthday."',
   "}",

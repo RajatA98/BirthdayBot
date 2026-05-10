@@ -84,6 +84,7 @@ Notes:
 - `FAL_VIDEO_MODEL` should stay on `fal-ai/kling-video/v3/standard/image-to-video` unless the team is intentionally testing a different endpoint.
 - `ELEVENLABS_API_KEY` powers both voice cloning and the AI-generated background music bed. Without it, the mux step uses `public/audio/party-music.mp3` (or a synthetic lavfi tone if that file is missing).
 - `USE_AI_MUSIC` overrides the AI music behavior: set `true` to force-on, `false` to force-off. If unset, AI music is automatically enabled whenever `ELEVENLABS_API_KEY` is present, with safe fallback to the static file on any failure.
+- Stock narration voice is auto-picked from the agent plan's `narrationVoiceCue` field (e.g. "warm Punjabi-accented male, mid-energy"). The default ElevenLabs voice library is English-American, so for authentic non-English accents add voices from the EL voice library to your account and configure these env vars: `ELEVENLABS_VOICE_SPANISH`, `ELEVENLABS_VOICE_INDIAN`, `ELEVENLABS_VOICE_KOREAN`, `ELEVENLABS_VOICE_JAPANESE`, `ELEVENLABS_VOICE_AFRICAN`, `ELEVENLABS_VOICE_ARABIC`, `ELEVENLABS_VOICE_MANDARIN`, `ELEVENLABS_VOICE_BRITISH`, `ELEVENLABS_VOICE_AUSTRALIAN`. Set `ELEVENLABS_STOCK_VOICE_ID` to force a specific stock voice regardless of the cue.
 - `Langfuse` is optional but recommended for tracing prompt decisions, timings, retries, and provider outcomes during real-photo testing.
 
 ## Testing

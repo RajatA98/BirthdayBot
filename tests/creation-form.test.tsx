@@ -40,7 +40,8 @@ const standardPlan: PlanRecord["plan"] = {
   identityAnchors: ["Woman on left", "Man on right"],
   sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
   safePrompt: "Preserve exactly two people and animate them naturally.",
-  negativePrompt: "No extra people."
+  negativePrompt: "No extra people.",
+  narrationVoiceCue: "warm American female, intimate"
 };
 
 function mockPlanRecord(

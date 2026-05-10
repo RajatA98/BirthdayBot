@@ -17,7 +17,8 @@ const responsesCreate = vi.hoisted(() =>
         identityAnchors: ["Person 1", "Person 2"],
         sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
         safePrompt: "Safe prompt.",
-        negativePrompt: "Negative prompt."
+        negativePrompt: "Negative prompt.",
+        narrationVoiceCue: "warm American female, intimate"
       },
       caption: "Happy birthday."
     }),
