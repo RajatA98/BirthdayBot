@@ -404,7 +404,14 @@ svg {
 }
 
 .bb-postcard.is-preview {
+  /* Aspect-driven sizing: aspect-ratio (4/5) inherited from .bb-postcard
+     drives the relationship; max-height clamps the long edge to the
+     viewport, and min-height: 0 lets that clamp actually win against
+     the default `min-height: auto`. Width stays auto so it scales
+     down to maintain the ratio when height is the binding constraint.
+     overflow: hidden inherited from .bb-postcard keeps children clipped. */
   max-height: min(70vh, 640px);
+  min-height: 0;
   width: auto;
   max-width: 100%;
   margin: 0 auto;
@@ -1195,7 +1202,18 @@ svg {
 }
 
 .bb-step-panel {
+  /* Defensive sizing so the panel never causes the page to overflow:
+     - max-width caps the design width.
+     - width: 100% lets the panel actually fill its parent up to that cap
+       (max-width alone doesn't force a width).
+     - min-width: 0 overrides the default min-width: auto on grid/flex
+       children so the panel can shrink below intrinsic content size.
+     - box-sizing: border-box folds the 40px horizontal padding into the
+       width calc so 100% includes it. */
   max-width: 720px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 40px 40px 32px;
   animation: bb-fade-up 350ms ease both;
