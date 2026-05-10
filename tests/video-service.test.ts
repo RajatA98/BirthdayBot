@@ -229,12 +229,6 @@ describe("startVideoGeneration voice-over", () => {
           status: 200,
           headers: { "Content-Type": "audio/mpeg" }
         })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: "ok" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
       );
 
     vi.stubGlobal("fetch", fetchMock);
@@ -250,7 +244,9 @@ describe("startVideoGeneration voice-over", () => {
 
     const result = await startVideoGeneration(planRecord, job);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Two calls: clone + TTS. We no longer DELETE the voice ID after each
+    // generation — the clone is reusable across generations in the session.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/voices/add"
     );
@@ -277,9 +273,6 @@ describe("startVideoGeneration voice-over", () => {
     });
     // narrationVoiceCue "warm American female, intimate" => [warmly] tag
     expect(ttsParsed.text.startsWith("[warmly]")).toBe(true);
-    expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      "https://api.elevenlabs.io/v1/voices/eleven_voice_123"
-    );
     expect(result.providerVoiceId).toBe("eleven_voice_123");
     expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,AQID");
     expect(result.providerRequestId).toBe("fal_request_123");
@@ -389,6 +382,53 @@ describe("startVideoGeneration voice-over", () => {
     expect(result.voiceOverError).toBeUndefined();
   });
 
+  it("skips IVC and reuses the cached voice_id when job.providerVoiceId is pre-populated", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // Only TTS (no /voices/add, no delete) since the voice_id is cached.
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([4, 5, 6]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true
+      })
+    );
+
+    // Pre-populate providerVoiceId on the job (simulating a cached clone
+    // from a previous generation in the same session).
+    const job = makeJob({ providerVoiceId: "eleven_voice_cached" });
+
+    const result = await startVideoGeneration(planRecord, job);
+
+    // Must NOT call /v1/voices/add — we already have a clone.
+    const ivcCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).endsWith("/v1/voices/add")
+    );
+    expect(ivcCalls).toHaveLength(0);
+
+    // Must call TTS using the cached voice_id.
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes(
+          "/v1/text-to-speech/eleven_voice_cached?output_format=mp3_44100_128"
+        )
+      )
+    ).toBe(true);
+    expect(result.providerVoiceId).toBe("eleven_voice_cached");
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BAUG");
+  });
+
   it("speech-to-speech: when voiceMode=speak-yourself and userMessageDataUrl is set, calls /v1/speech-to-speech/{voice_id} with the user's recording", async () => {
     process.env.FAL_KEY = "test-fal-key";
     process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
@@ -409,13 +449,6 @@ describe("startVideoGeneration voice-over", () => {
         new Response(new Uint8Array([10, 11, 12]), {
           status: 200,
           headers: { "Content-Type": "audio/mpeg" }
-        })
-      )
-      // 3) Voice delete cleanup
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: "ok" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
         })
       );
 
@@ -520,7 +553,7 @@ function makePlanRecord(draft = makeDraft()): PlanRecord {
   };
 }
 
-function makeJob(): JobRecord {
+function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
     jobId: "job_123",
     requestId: "req_123",
@@ -528,6 +561,7 @@ function makeJob(): JobRecord {
     statusMessage: "Queued and preparing the creative brief.",
     attempts: 1,
     caption: "Happy birthday, legend.",
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    ...overrides
   };
 }

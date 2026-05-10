@@ -557,6 +557,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
   function clearVoiceSample() {
     clearVoiceDraft();
+    clearCachedVoiceId();
     setVoiceSampleName("");
     setVoiceSampleDataUrl("");
     setVoiceSampleClipsData([]);
@@ -780,7 +781,14 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         caption,
         createdAt: Date.now()
       };
-      const initialJob = await api.startGeneration(planRecord);
+      const cachedVoiceId = readCachedVoiceId();
+      const initialJob = await api.startGeneration({
+        ...planRecord,
+        cachedProviderVoiceId: cachedVoiceId || undefined
+      });
+      if (initialJob.providerVoiceId) {
+        persistCachedVoiceId(initialJob.providerVoiceId);
+      }
       setJob(initialJob);
       setPhase("generating");
     } catch (error) {
@@ -813,6 +821,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   function startFresh() {
     clearPersistedSession();
     clearVoiceDraft();
+    clearCachedVoiceId();
     setMode("simple");
     setVoiceMode("narrate");
     setUserMessageDataUrl("");
@@ -1300,8 +1309,10 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
                 role="status"
               >
                 {recordingSeconds < minTakeSeconds
-                  ? `Keep going — at least ${minTakeSeconds - recordingSeconds}s more (ElevenLabs needs ${minTakeSeconds}s+ per take).`
-                  : `${formatDuration(recordingSeconds)} captured — long enough to finish.`}
+                  ? `Keep going — at least ${minTakeSeconds - recordingSeconds}s more. Aim for 10–15s per take for the best clone.`
+                  : recordingSeconds < 10
+                    ? `${formatDuration(recordingSeconds)} captured — long enough; 10–15s gives a stronger clone.`
+                    : `${formatDuration(recordingSeconds)} captured — solid take.`}
               </p>
             </>
           ) : (
@@ -1329,12 +1340,12 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           </button>
           <span className="upload-meta">
             {recordingState === "recording"
-              ? `Read the ${activeVoiceStep.tone.toLowerCase()} phrase slowly. Each take needs at least ${minTakeSeconds} seconds — feel free to repeat the phrase or add a few extra words.`
+              ? `Read the ${activeVoiceStep.tone.toLowerCase()} phrase slowly. ${minTakeSeconds}s minimum, 10–15s ideal — repeat the phrase or add a few extra words.`
               : isVoiceCalibrationComplete
                 ? "Sample ready. Re-record any tone if you want a better match."
                 : recordedVoiceCount
-                  ? `Next up: ${activeVoiceStep.tone.toLowerCase()} tone (aim for ${minTakeSeconds}+ seconds per take).`
-                  : `Start with neutral, then record excited, then warm. Each take needs at least ${minTakeSeconds} seconds.`}
+                  ? `Next up: ${activeVoiceStep.tone.toLowerCase()} tone (10–15s gives a stronger clone).`
+                  : `Start with neutral, then excited, then warm. Each take 10–15s for the best clone (5s minimum).`}
           </span>
         </div>
 
@@ -1841,6 +1852,27 @@ function persistVoiceDraft(draft: PersistedVoiceDraft) {
 function clearVoiceDraft() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(voiceDraftStorageKey);
+}
+
+const cachedVoiceIdKey = "birthdaybot:cached-voice-id";
+
+function readCachedVoiceId(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(cachedVoiceIdKey) || "";
+}
+
+function persistCachedVoiceId(voiceId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(cachedVoiceIdKey, voiceId);
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearCachedVoiceId() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(cachedVoiceIdKey);
 }
 
 function readPersistedSession(): PersistedSession | null {

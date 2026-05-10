@@ -47,7 +47,11 @@ async function createVoiceOverInner(
   planRecord: PlanRecord,
   job: JobRecord
 ): Promise<VoiceOverResult> {
-  if (job.voiceOverUrl || job.voiceOverError || job.providerVoiceId) {
+  // Retry of an existing job that already produced audio: return cached.
+  // We only short-circuit on actual audio (or a recorded error), not on
+  // a bare voice_id — a fresh generation needs to re-do TTS even if the
+  // clone is reusable.
+  if (job.voiceOverUrl || job.voiceOverError) {
     return {
       providerVoiceId: job.providerVoiceId,
       voiceOverUrl: job.voiceOverUrl,
@@ -70,16 +74,21 @@ async function createVoiceOverInner(
   const hasConsent = Boolean(draft.voiceConsent);
   const isSpeakYourself =
     draft.voiceMode === "speak-yourself" && Boolean(draft.userMessageDataUrl);
+  // Voice clones persist across generations within a session — when the
+  // client passes a previously-minted voice_id back, skip the IVC step.
+  const cachedVoiceId = job.providerVoiceId;
 
   // Speak-yourself mode: the user recorded their actual birthday message in
   // their own voice. We route it through ElevenLabs Voice Changer (S2S) so
   // the *output* sounds polished but their prosody, timing, laughs, and
   // emotional delivery are preserved verbatim — TTS-from-script can never
   // do that.
-  if (isSpeakYourself && hasSample && hasConsent) {
-    let voiceId: string | undefined;
+  if (isSpeakYourself && (hasSample || cachedVoiceId) && hasConsent) {
+    let voiceId: string | undefined = cachedVoiceId;
     try {
-      voiceId = await createElevenLabsVoice(draft, apiKey);
+      if (!voiceId) {
+        voiceId = await createElevenLabsVoice(draft, apiKey);
+      }
       const voiceOverUrl = await createElevenLabsSpeechToSpeech(
         voiceId,
         draft.userMessageDataUrl as string,
@@ -102,20 +111,18 @@ async function createVoiceOverInner(
         error instanceof Error ? error.message : error
       );
       // fall through to stock-voice fallback (will be TTS, not S2S)
-    } finally {
-      if (voiceId) {
-        await deleteElevenLabsVoice(voiceId, apiKey);
-      }
     }
   }
 
   // Try the user's cloned voice first — only if they uploaded a sample AND
   // explicitly confirmed cloning consent. Without consent we never upload
   // their voice, but we still narrate using a stock voice.
-  if (hasSample && hasConsent) {
-    let voiceId: string | undefined;
+  if ((hasSample || cachedVoiceId) && hasConsent) {
+    let voiceId: string | undefined = cachedVoiceId;
     try {
-      voiceId = await createElevenLabsVoice(draft, apiKey);
+      if (!voiceId) {
+        voiceId = await createElevenLabsVoice(draft, apiKey);
+      }
       const voiceOverUrl = await createElevenLabsSpeech(
         voiceId,
         addAudioTag(text, planRecord.plan.narrationVoiceCue),
@@ -145,10 +152,6 @@ async function createVoiceOverInner(
         error instanceof Error ? error.message : error
       );
       // fall through to stock-voice fallback
-    } finally {
-      if (voiceId) {
-        await deleteElevenLabsVoice(voiceId, apiKey);
-      }
     }
   }
 

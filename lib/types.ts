@@ -103,7 +103,9 @@ export type PlanResponse = PlanRecord;
 
 export type GenerateResponse = JobRecord;
 
-export type GenerateRequest = PlanRecord;
+export type GenerateRequest = PlanRecord & {
+  cachedProviderVoiceId?: string;
+};
 
 export type JobCheckRequest = {
   job: JobRecord;

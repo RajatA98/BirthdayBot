@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 
 import { makeId } from "@/lib/id";
-import { JobRecord, PlanRecord } from "@/lib/types";
+import { GenerateRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { startVideoGeneration } from "@/lib/video-service";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const planRecord = (await request.json()) as PlanRecord;
+    const body = (await request.json()) as GenerateRequest;
 
-    if (!isValidPlanRecord(planRecord)) {
+    if (!isValidPlanRecord(body)) {
       return NextResponse.json(
         {
           error:
@@ -20,6 +20,12 @@ export async function POST(request: Request) {
       );
     }
 
+    const planRecord: PlanRecord = body;
+    const cachedProviderVoiceId =
+      typeof body.cachedProviderVoiceId === "string"
+        ? body.cachedProviderVoiceId
+        : undefined;
+
     const initialJob: JobRecord = {
       jobId: makeId("job"),
       requestId: planRecord.requestId,
@@ -27,6 +33,7 @@ export async function POST(request: Request) {
       statusMessage: "Queued and preparing the creative brief.",
       attempts: 1,
       caption: planRecord.caption,
+      providerVoiceId: cachedProviderVoiceId,
       createdAt: Date.now()
     };
 
