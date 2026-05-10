@@ -1,3 +1,5 @@
+import { fal } from "@fal-ai/client";
+
 import {
   DraftRequest,
   GenerateRequest,
@@ -5,6 +7,14 @@ import {
   JobRecord,
   PlanRecord
 } from "@/lib/types";
+
+if (typeof window !== "undefined") {
+  fal.config({ proxyUrl: "/api/fal/proxy" });
+}
+
+export async function uploadPhotoToFal(file: Blob): Promise<string> {
+  return fal.storage.upload(file);
+}
 
 export type StudioApi = {
   createPlan(input: DraftRequest): Promise<PlanRecord>;

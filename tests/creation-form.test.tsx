@@ -2,6 +2,17 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+const falStorageUpload = vi.hoisted(() =>
+  vi.fn(async () => "https://example.fal.media/uploaded-photo.png")
+);
+
+vi.mock("@fal-ai/client", () => ({
+  fal: {
+    config: vi.fn(),
+    storage: { upload: falStorageUpload }
+  }
+}));
+
 import { CreationForm } from "@/components/creation-form";
 import { StudioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
@@ -179,6 +190,32 @@ describe("CreationForm", () => {
         voiceConsent: true
       })
     );
+  });
+
+  it("uploads the photo directly to fal storage before calling /api/plan", async () => {
+    const user = userEvent.setup();
+    const createPlan = vi.fn<StudioApi["createPlan"]>(async (input) =>
+      mockPlanRecord(input)
+    );
+    falStorageUpload.mockClear();
+    falStorageUpload.mockResolvedValueOnce(
+      "https://example.fal.media/uploaded-photo.png"
+    );
+
+    render(<CreationForm api={makeApi({ createPlan })} />);
+
+    await fillValidDraft(user);
+    await user.click(
+      screen.getByRole("button", { name: "Build my birthday brief" })
+    );
+
+    await waitFor(() => expect(createPlan).toHaveBeenCalledTimes(1));
+    expect(falStorageUpload).toHaveBeenCalledTimes(1);
+    const draftSent = createPlan.mock.calls[0]?.[0] as DraftRequest;
+    expect(draftSent.photoDataUrl).toBe(
+      "https://example.fal.media/uploaded-photo.png"
+    );
+    expect(draftSent.photoDataUrl.startsWith("data:")).toBe(false);
   });
 
   it("requires consent before submitting a voice sample for cloning", async () => {

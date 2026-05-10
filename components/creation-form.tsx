@@ -9,7 +9,7 @@ import React, {
   useState
 } from "react";
 
-import { studioApi, StudioApi } from "@/lib/client-api";
+import { studioApi, StudioApi, uploadPhotoToFal } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
 import {
   AdvancedSettings,
@@ -537,9 +537,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setPhase("planning");
 
     try {
-      const response = await api.createPlan(draft);
+      const uploadedDraft = await ensurePhotoUploaded(draft);
+      if (uploadedDraft.photoDataUrl !== draft.photoDataUrl) {
+        setPhotoDataUrl(uploadedDraft.photoDataUrl);
+      }
+      const response = await api.createPlan(uploadedDraft);
       setRequestId(response.requestId);
-      setPlannedDraft(draft);
+      setPlannedDraft(uploadedDraft);
       setPlan(response.plan);
       setCaption(response.caption);
       setPhase("review");
@@ -548,6 +552,20 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       setStatusError(
         error instanceof Error ? error.message : "Planning request failed."
       );
+    }
+  }
+
+  async function ensurePhotoUploaded(draft: DraftRequest): Promise<DraftRequest> {
+    if (!draft.photoDataUrl.startsWith("data:")) {
+      return draft;
+    }
+    try {
+      const blob = dataUrlStringToBlob(draft.photoDataUrl, draft.photoName);
+      const url = await uploadPhotoToFal(blob);
+      return { ...draft, photoDataUrl: url };
+    } catch (error) {
+      console.warn("[birthdaybot] direct fal photo upload failed, falling back to data URL", error);
+      return draft;
     }
   }
 
@@ -1441,6 +1459,18 @@ function birthdayOverlayLine(name: string | undefined, caption: string) {
 function birthdayNameFromCaption(caption: string) {
   const match = caption.match(/^happy birthday(?:\s+to)?\s+([^.!?,]+)/i);
   return match?.[1]?.trim() || "";
+}
+
+function dataUrlStringToBlob(dataUrl: string, name: string): File {
+  const [header, data] = dataUrl.split(",");
+  const mimeMatch = header.match(/data:(.*);base64/);
+  const mime = mimeMatch?.[1] || "application/octet-stream";
+  const binaryString = atob(data || "");
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i += 1) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new File([bytes], name || "upload.bin", { type: mime });
 }
 
 function readPersistedSession(): PersistedSession | null {
