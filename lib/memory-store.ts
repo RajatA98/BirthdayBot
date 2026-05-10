@@ -47,6 +47,7 @@ function sanitizePlanRecord(record: PlanRecord): PlanRecord {
     draft: {
       ...record.draft,
       voiceSampleDataUrl: undefined,
+      voiceSampleClips: undefined,
       voiceConsent: undefined
     }
   };

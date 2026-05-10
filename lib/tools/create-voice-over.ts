@@ -79,13 +79,12 @@ export async function createVoiceOver(
 
 async function createElevenLabsVoice(draft: DraftRequest, apiKey: string) {
   const form = new FormData();
-  const voiceSample = dataUrlToBlob(
-    draft.voiceSampleDataUrl || "",
-    draft.voiceSampleName || "voice-sample.webm"
-  );
+  const samples = collectVoiceSamples(draft);
 
   form.append("name", `BirthdayBot voice ${Date.now()}`);
-  form.append("files", voiceSample);
+  for (const sample of samples) {
+    form.append("files", sample);
+  }
   form.append("remove_background_noise", "true");
   form.append("description", "Temporary BirthdayBot voice-over voice.");
 
@@ -217,4 +216,32 @@ function dataUrlToBlob(dataUrl: string, name: string) {
   const mime = header.match(/data:(.*);base64/)?.[1] || "audio/webm";
   const bytes = Buffer.from(data, "base64");
   return new File([bytes], name, { type: mime });
+}
+
+function collectVoiceSamples(draft: DraftRequest) {
+  const baseName = (draft.voiceSampleName || "voice-sample.webm").replace(
+    /\.[^.]+$/,
+    ""
+  );
+  const baseExt = extensionFromName(draft.voiceSampleName) || "webm";
+
+  if (draft.voiceSampleClips && draft.voiceSampleClips.length) {
+    return draft.voiceSampleClips
+      .filter((dataUrl) => Boolean(dataUrl))
+      .map((dataUrl, index) =>
+        dataUrlToBlob(dataUrl, `${baseName}-take-${index + 1}.${baseExt}`)
+      );
+  }
+
+  if (draft.voiceSampleDataUrl) {
+    return [dataUrlToBlob(draft.voiceSampleDataUrl, `${baseName}.${baseExt}`)];
+  }
+
+  return [];
+}
+
+function extensionFromName(name?: string) {
+  if (!name) return undefined;
+  const match = name.match(/\.([^.]+)$/);
+  return match?.[1];
 }

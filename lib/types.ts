@@ -19,6 +19,7 @@ export type DraftRequest = {
   photoDataUrl: string;
   voiceSampleName?: string;
   voiceSampleDataUrl?: string;
+  voiceSampleClips?: string[];
   voiceConsent?: boolean;
   advanced: AdvancedSettings;
 };

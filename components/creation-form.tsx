@@ -75,6 +75,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [photoDataUrl, setPhotoDataUrl] = useState("");
   const [voiceSampleName, setVoiceSampleName] = useState("");
   const [voiceSampleDataUrl, setVoiceSampleDataUrl] = useState("");
+  const [voiceSampleClipsData, setVoiceSampleClipsData] = useState<string[]>([]);
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -227,6 +228,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     if (!nextFile) {
       setVoiceSampleName("");
       setVoiceSampleDataUrl("");
+      setVoiceSampleClipsData([]);
       setVoiceSampleSource("");
       setVoiceConsent(false);
       setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -240,6 +242,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     ) {
       setVoiceSampleName("");
       setVoiceSampleDataUrl("");
+      setVoiceSampleClipsData([]);
       setVoiceSampleSource("");
       setVoiceConsent(false);
       setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -253,6 +256,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
     setVoiceSampleName(nextFile.name);
     setVoiceSampleDataUrl(await fileToDataUrl(nextFile));
+    setVoiceSampleClipsData([]);
     setVoiceSampleSource("uploaded");
     setVoiceConsent(false);
     setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -284,6 +288,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     ) {
       setVoiceSampleName("");
       setVoiceSampleDataUrl("");
+      setVoiceSampleClipsData([]);
       setVoiceSampleSource("");
       setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
       setErrors((current) => ({
@@ -356,10 +361,18 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
             recordingType
           );
 
+          const definedClips = nextClips.filter(
+            (clip): clip is Blob => Boolean(clip)
+          );
+          const clipsData = await Promise.all(
+            definedClips.map((clip) => fileToDataUrl(clip))
+          );
+
           setVoiceSampleName(
             `recorded-voice.${extensionForMimeType(combinedRecording.type)}`
           );
           setVoiceSampleDataUrl(await fileToDataUrl(combinedRecording));
+          setVoiceSampleClipsData(clipsData);
           setVoiceSampleSource("recorded");
           setVoiceConsent(false);
           setErrors((current) => ({
@@ -391,6 +404,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   function clearVoiceSample() {
     setVoiceSampleName("");
     setVoiceSampleDataUrl("");
+    setVoiceSampleClipsData([]);
     setVoiceSampleSource("");
     setVoiceConsent(false);
     setGuidedVoiceClips(voiceSamplePrompts.map(() => null));
@@ -445,6 +459,9 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       photoDataUrl,
       voiceSampleName: voiceSampleName || undefined,
       voiceSampleDataUrl: voiceSampleDataUrl || undefined,
+      voiceSampleClips: voiceSampleClipsData.length
+        ? voiceSampleClipsData
+        : undefined,
       voiceConsent: voiceSampleDataUrl ? voiceConsent : undefined,
       advanced
     };
@@ -540,6 +557,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setPhotoDataUrl("");
     setVoiceSampleName("");
     setVoiceSampleDataUrl("");
+    setVoiceSampleClipsData([]);
     setVoiceConsent(false);
     setRecordingState("idle");
     setRecordingSeconds(0);
