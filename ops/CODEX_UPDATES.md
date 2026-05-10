@@ -60,3 +60,9 @@
 - Updated `README.md` with the current architecture, setup steps, env vars, testing commands, key files, and known limitations.
 - Current status: end-to-end flow works, video generation is working, but prompt quality still needs tuning on real photos to reduce subject drift and improve output consistency.
 - Next: keep testing against a small golden set of photos/prompts and refine the prompt-engineering layer before broader demo use.
+
+## 2026-05-09
+
+- Added `Langfuse` env support for observability and aligned local `.env` usage with the current setup.
+- Teammate action: update local `.env` to use `FAL_VIDEO_MODEL=fal-ai/kling-video/v3/standard/image-to-video` and include the `Langfuse` keys before testing.
+- Updated the `README.md` env section and the handoff note so the local setup steps match the current provider and observability configuration.

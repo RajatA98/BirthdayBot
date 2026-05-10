@@ -67,12 +67,18 @@ OPENAI_CAPTION_MODEL=gpt-4.1-mini
 
 FAL_KEY=
 FAL_VIDEO_MODEL=fal-ai/kling-video/v3/standard/image-to-video
+
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
 ```
 
 Notes:
 
 - If `OPENAI_API_KEY` is missing, the app falls back to mock planning and caption generation.
 - If `FAL_KEY` is missing, the app falls back to a mock video-generation flow.
+- `FAL_VIDEO_MODEL` should stay on `fal-ai/kling-video/v3/standard/image-to-video` unless the team is intentionally testing a different endpoint.
+- `Langfuse` is optional but recommended for tracing prompt decisions, timings, retries, and provider outcomes during real-photo testing.
 
 ## Testing
 
