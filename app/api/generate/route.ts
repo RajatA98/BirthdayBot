@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { makeId } from "@/lib/id";
-import { getPlan, saveJob, savePlan, updateJob } from "@/lib/memory-store";
 import { GenerateRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { startVideoGeneration } from "@/lib/video-service";
 
@@ -9,46 +8,45 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Partial<GenerateRequest>;
-    const requestId = body.requestId;
+    const body = (await request.json()) as GenerateRequest;
 
-    if (!requestId) {
+    if (!isValidPlanRecord(body)) {
       return NextResponse.json(
-        { error: "requestId is required." },
+        {
+          error:
+            "Plan payload is incomplete. Build the birthday brief again before starting generation."
+        },
         { status: 400 }
       );
     }
 
-    const planRecord = resolvePlanRecord(requestId, body);
-
-    if (!planRecord) {
-      return NextResponse.json(
-        {
-          error:
-            "Plan not found. Build the birthday brief again before starting generation."
-        },
-        { status: 404 }
-      );
-    }
+    const planRecord: PlanRecord = body;
+    const cachedProviderVoiceId =
+      typeof body.cachedProviderVoiceId === "string"
+        ? body.cachedProviderVoiceId
+        : undefined;
 
     const initialJob: JobRecord = {
       jobId: makeId("job"),
-      requestId,
+      requestId: planRecord.requestId,
       stage: "queued",
       statusMessage: "Queued and preparing the creative brief.",
       attempts: 1,
       caption: planRecord.caption,
+      providerVoiceId: cachedProviderVoiceId,
       createdAt: Date.now()
     };
 
-    saveJob(initialJob);
-
     try {
       const providerJob = await startVideoGeneration(planRecord, initialJob);
-      updateJob(initialJob.jobId, providerJob);
+      return NextResponse.json({ ...initialJob, ...providerJob });
     } catch (err) {
-      console.error("[generate] startVideoGeneration failed:", JSON.stringify(err, null, 2));
-      updateJob(initialJob.jobId, {
+      console.error(
+        "[generate] startVideoGeneration failed:",
+        JSON.stringify(err, null, 2)
+      );
+      return NextResponse.json({
+        ...initialJob,
         stage: "failed",
         statusMessage: "Video generation could not be started.",
         error:
@@ -57,8 +55,6 @@ export async function POST(request: Request) {
             : "Provider startup failed before a video job was created."
       });
     }
-
-    return NextResponse.json({ jobId: initialJob.jobId });
   } catch (error) {
     return NextResponse.json(
       {
@@ -72,28 +68,13 @@ export async function POST(request: Request) {
   }
 }
 
-function resolvePlanRecord(
-  requestId: string,
-  body: Partial<GenerateRequest>
-): PlanRecord | undefined {
-  const savedRecord = getPlan(requestId);
-
-  if (savedRecord) {
-    return savedRecord;
-  }
-
-  if (!body.draft || !body.plan || typeof body.caption !== "string") {
-    return undefined;
-  }
-
-  const restoredRecord: PlanRecord = {
-    requestId,
-    draft: body.draft,
-    plan: body.plan,
-    caption: body.caption,
-    createdAt: Date.now()
-  };
-
-  savePlan(restoredRecord);
-  return restoredRecord;
+function isValidPlanRecord(value: unknown): value is PlanRecord {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<PlanRecord>;
+  return (
+    typeof candidate.requestId === "string" &&
+    typeof candidate.caption === "string" &&
+    Boolean(candidate.draft) &&
+    Boolean(candidate.plan)
+  );
 }

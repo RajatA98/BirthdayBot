@@ -1,0 +1,225 @@
+import { DraftRequest, PlanRecord } from "@/lib/types";
+
+// Live cap fal/kling enforces is 2500 chars; older v3 builds capped at 512.
+// We stay safely under both so the request is never rejected for length, and
+// callers can override via FAL_PROMPT_CHAR_LIMIT for endpoints with stricter
+// limits.
+const defaultPromptCharLimit = 2400;
+
+type FalVideoInput = {
+  prompt: string;
+  image_url?: string;
+  start_image_url?: string;
+  duration?: string;
+  aspect_ratio?: string;
+  negative_prompt?: string;
+  cfg_scale?: number;
+  generate_audio?: boolean;
+};
+
+export type BuildFalOptions = {
+  safeRetry?: boolean;
+};
+
+export function buildFalInput(
+  endpoint: string,
+  imageUrl: string,
+  draft: DraftRequest,
+  plan: PlanRecord["plan"],
+  caption: string,
+  options: BuildFalOptions = {}
+): FalVideoInput {
+  const input: FalVideoInput = supportsStartImageUrl(endpoint)
+    ? {
+        start_image_url: imageUrl,
+        prompt: buildFalPrompt(draft, plan, caption, options)
+      }
+    : {
+        image_url: imageUrl,
+        prompt: buildFalPrompt(draft, plan, caption, options)
+      };
+
+  input.duration = durationForEndpoint(endpoint, draft);
+  input.aspect_ratio = aspectRatioForDraft(draft);
+  // Safe retry: keep the negative prompt minimal so the input payload is
+  // as plain as possible. Drop the plan-extension flourishes that may
+  // have triggered fal's content moderation on attempt 1.
+  input.negative_prompt = options.safeRetry
+    ? "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity, different people, replacement actors, stock-footage people, new characters, subject swap"
+    : [
+        "any on-screen text, captions, subtitles, lower thirds, title cards, words, letters, signage with words, written messages, name tags, watermark, logo",
+        "blur, distort, low quality, distorted hands, extra faces, changed identity",
+        "different people from the source photo, replacement actors, body double, stock-footage people, generic athletes, generic models, new characters appearing mid-shot, subject swap during transition, scene cut to unrelated people",
+        plan.negativePrompt
+      ]
+        .filter(Boolean)
+        .join(", ");
+  // Lower cfg on safe retry → looser interpretation → better acceptance
+  // odds for borderline prompts.
+  input.cfg_scale = options.safeRetry ? 0.5 : 0.65;
+
+  if (supportsNativeAudio(endpoint) && !hasVoiceSample(draft)) {
+    input.generate_audio = true;
+  }
+
+  return input;
+}
+
+export function buildFalPrompt(
+  draft: DraftRequest,
+  plan: PlanRecord["plan"],
+  caption = "",
+  options: BuildFalOptions = {}
+) {
+  const textDirection = buildTextDirection(draft, caption);
+  const musicDirection = buildMusicDirection(draft);
+  const safePrompt = "safePrompt" in plan && typeof plan.safePrompt === "string"
+    ? `Internal direction: ${plan.safePrompt}`
+    : undefined;
+  const guardrails =
+    "sceneGuardrails" in plan && Array.isArray(plan.sceneGuardrails)
+      ? `Scene guardrails: ${plan.sceneGuardrails.join("; ")}.`
+      : undefined;
+
+  // Safe retry: drop the verbose user-direction layer entirely and ride on
+  // the plan's internal `safePrompt` plus identity guardrails. The first
+  // attempt's prompt was rejected by fal — try a tighter, more neutral
+  // payload before giving up.
+  if (options.safeRetry) {
+    const joined = [
+      "Create a short cinematic birthday celebration video from the uploaded photo.",
+      safePrompt,
+      "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
+      guardrails,
+      textDirection,
+      musicDirection,
+      "Avoid text artifacts, watermarks, distorted hands, extra faces, or changing the subject's identity."
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return capPromptLength(joined);
+  }
+
+  const advancedDirection =
+    draft.mode === "advanced"
+      ? [
+          `Tone: ${draft.advanced.tone}`,
+          `Scene idea: ${draft.advanced.sceneIdea}`,
+          `Length target: ${draft.advanced.videoLength}`,
+          `Aspect ratio: ${draft.advanced.aspectRatio}`,
+          `Music vibe: ${draft.advanced.musicVibe}`,
+          `Motion intensity: ${draft.advanced.motionIntensity}`
+        ].join(". ")
+      : "Use a warm, sendable birthday-video style.";
+  const isSpeakYourself = draft.voiceMode === "speak-yourself";
+  const audioDelivery = isSpeakYourself
+    ? "The voice-over is the user's OWN spoken birthday message (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it."
+    : undefined;
+
+  const joined = [
+    "Create a short cinematic birthday celebration video from the uploaded photo.",
+    "IDENTITY LOCK: The on-screen subjects must be the exact same people from the uploaded source photo throughout the entire video — every shot, every transition, every action moment, every wide angle. Do NOT cut away to other people, do NOT replace the subjects with stock-looking actors or models, and do NOT introduce new characters during transitions or motion. If the camera pulls back, the people in the wider frame are still the source-photo subjects, not generic stand-ins. Preserve their faces, skin tone, hair, body type, clothing cues, and the relationship shown in the source photo across the whole clip.",
+    `User video prompt: ${draft.prompt}`,
+    "Treat the user video prompt as the main creative direction for the generated video, but never at the expense of the IDENTITY LOCK above.",
+    textDirection,
+    musicDirection,
+    audioDelivery,
+    "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene.",
+    "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
+    `Concept: ${plan.concept}`,
+    `Scene direction: ${plan.sceneDirection}`,
+    `Motion direction: ${plan.motionDirection}`,
+    `Generation strategy: ${plan.generationStrategy}`,
+    `Advanced direction: ${advancedDirection}`,
+    `Keep these cues from the photo: ${plan.keepFromPhoto.join("; ")}.`,
+    guardrails,
+    safePrompt,
+    "Avoid text artifacts, watermarks, distorted hands, extra faces, or changing the subject's identity."
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return capPromptLength(joined);
+}
+
+function capPromptLength(prompt: string, max = defaultPromptCharLimit) {
+  if (prompt.length <= max) return prompt;
+
+  const slice = prompt.slice(0, max);
+  const lastSentenceEnd = Math.max(
+    slice.lastIndexOf(". "),
+    slice.lastIndexOf("! "),
+    slice.lastIndexOf("? ")
+  );
+
+  if (lastSentenceEnd > max * 0.6) {
+    return slice.slice(0, lastSentenceEnd + 1).trim();
+  }
+
+  const lastSpace = slice.lastIndexOf(" ");
+  return (lastSpace > 0 ? slice.slice(0, lastSpace) : slice).trim();
+}
+
+function buildTextDirection(draft: DraftRequest, caption: string) {
+  void draft;
+  void caption;
+  return "Do not render any text, captions, titles, lower thirds, signage with words, or written messages anywhere in the frame. The 'Happy Birthday' title is added as a clean post-process overlay outside the model, and the spoken voice-over carries the message — keep every frame text-free.";
+}
+
+function buildMusicDirection(draft: DraftRequest) {
+  const musicVibe =
+    draft.mode === "advanced" ? draft.advanced.musicVibe : "Uplifting";
+
+  if (draft.voiceMode === "song") {
+    return `Do not generate any spoken narration, synthetic dialogue, or native soundtrack audio. Leave the MP4 audio-free — a custom ${draft.songStyle || "acoustic"}-style birthday song will be muxed in as the entire audio track after generation. The video should pulse with the energy of a music video.`;
+  }
+
+  if (hasVoiceSample(draft)) {
+    return "Do not generate spoken narration, synthetic dialogue, or native soundtrack audio. Leave the MP4 audio-free because the user's cloned ElevenLabs narration will be muxed into the final video after generation.";
+  }
+
+  return `Generate native audio in the final MP4 with a ${musicVibe.toLowerCase()} birthday music bed that matches the scene. Keep it as background music or ambient celebration audio, with no spoken narration unless the user explicitly asks for dialogue.`;
+}
+
+function durationForEndpoint(endpoint: string, draft: DraftRequest) {
+  const requested =
+    draft.mode === "advanced" ? draft.advanced.videoLength : "10 seconds";
+  const seconds = requested.match(/\d+/)?.[0] || "10";
+
+  if (seconds === "15" && !supportsLongDurations(endpoint)) {
+    return "10";
+  }
+
+  return seconds;
+}
+
+function aspectRatioForDraft(draft: DraftRequest) {
+  const aspectRatio =
+    draft.mode === "advanced" ? draft.advanced.aspectRatio : "Portrait";
+
+  switch (aspectRatio) {
+    case "Landscape":
+      return "16:9";
+    case "Square":
+      return "1:1";
+    case "Portrait":
+    default:
+      return "9:16";
+  }
+}
+
+function hasVoiceSample(draft: DraftRequest) {
+  return Boolean(draft.voiceSampleDataUrl);
+}
+
+function supportsStartImageUrl(endpoint: string) {
+  return /\/v(2\.6|3)|\/master\//.test(endpoint);
+}
+
+function supportsNativeAudio(endpoint: string) {
+  return /\/v(2\.6|3)|\/master\//.test(endpoint);
+}
+
+function supportsLongDurations(endpoint: string) {
+  return /\/v3|\/master\//.test(endpoint);
+}

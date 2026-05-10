@@ -11,6 +11,16 @@ export type AdvancedSettings = {
   agentGoalMode: string;
 };
 
+export type VoiceMode = "narrate" | "speak-yourself" | "song";
+
+export type SongStyle =
+  | "Mariachi"
+  | "Bhangra"
+  | "Lo-fi"
+  | "Gospel"
+  | "80s power ballad"
+  | "Acoustic";
+
 export type DraftRequest = {
   mode: Mode;
   birthdayName?: string;
@@ -21,7 +31,11 @@ export type DraftRequest = {
   voiceCloneName?: string;
   voiceSampleName?: string;
   voiceSampleDataUrl?: string;
+  voiceSampleClips?: string[];
   voiceConsent?: boolean;
+  voiceMode?: VoiceMode;
+  userMessageDataUrl?: string;
+  songStyle?: SongStyle;
   advanced: AdvancedSettings;
 };
 
@@ -35,6 +49,21 @@ export type AgentPlan = {
   generationStrategy: string;
   keepFromPhoto: string[];
   surpriseFactor: string;
+  subjectCount: number;
+  identityAnchors: string[];
+  sceneGuardrails: string[];
+  safePrompt: string;
+  negativePrompt: string;
+  narrationVoiceCue: string;
+};
+
+export type PhotoAnalysis = {
+  subjectCount: number;
+  identityAnchors: string[];
+  clothingAnchors: string[];
+  compositionAnchors: string[];
+  mood: string;
+  sceneSummary: string;
 };
 
 export type PlanRecord = {
@@ -55,6 +84,12 @@ export type JobStage =
   | "completed"
   | "failed";
 
+export type JobLogEntry = {
+  message: string;
+  timestamp: number;
+  source?: "provider" | "system";
+};
+
 export type JobRecord = {
   jobId: string;
   requestId: string;
@@ -63,6 +98,7 @@ export type JobRecord = {
   attempts: number;
   videoUrl?: string;
   voiceOverUrl?: string;
+  musicBedUrl?: string;
   caption: string;
   error?: string;
   providerRequestId?: string;
@@ -70,22 +106,20 @@ export type JobRecord = {
   providerVoiceId?: string;
   targetDurationSeconds?: number;
   voiceOverError?: string;
+  voiceMode?: VoiceMode;
+  logs?: JobLogEntry[];
   createdAt: number;
 };
 
-export type PlanResponse = {
-  requestId: string;
-  plan: AgentPlan;
-  caption: string;
+export type PlanResponse = PlanRecord;
+
+export type GenerateResponse = JobRecord;
+
+export type GenerateRequest = PlanRecord & {
+  cachedProviderVoiceId?: string;
 };
 
-export type GenerateResponse = {
-  jobId: string;
-};
-
-export type GenerateRequest = {
-  requestId: string;
-  draft?: DraftRequest;
-  plan?: AgentPlan;
-  caption?: string;
+export type JobCheckRequest = {
+  job: JobRecord;
+  plan: PlanRecord;
 };

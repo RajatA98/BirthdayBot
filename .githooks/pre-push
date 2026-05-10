@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-update_file="$(./scripts/create-ops-update.sh)"
-git add "$update_file"
+current_branch="$(git branch --show-current 2>/dev/null || true)"
+upstream_ref=""
 
-echo "Generated and staged $update_file"
-echo "Review the ops update, commit it, then push again."
-exit 1
+if [ -n "$current_branch" ]; then
+  upstream_ref="$(git rev-parse --abbrev-ref "${current_branch}@{upstream}" 2>/dev/null || true)"
+fi
+
+if [ -n "$upstream_ref" ]; then
+  range="${upstream_ref}..HEAD"
+else
+  range="HEAD^..HEAD"
+fi
+
+if git diff --quiet "$range" -- ops/updates; then
+  update_file="$(./scripts/create-ops-update.sh)"
+  git add "$update_file"
+
+  echo "Generated and staged $update_file"
+  echo "No ops update was found in commits being pushed."
+  echo "Review the ops update, commit it, then push again."
+  exit 1
+fi

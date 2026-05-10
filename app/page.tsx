@@ -4,7 +4,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 
 import { studioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
-import { AgentPlan, DraftRequest, JobRecord } from "@/lib/types";
+import { AgentPlan, DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
 
 type ColorName = "pink" | "yellow" | "lime" | "lavender" | "coral";
 type FriendStatus = "idea" | "draft" | "scheduled" | "sent";
@@ -39,8 +39,10 @@ type Friend = {
 
 type VoiceCloneState = {
   ready: boolean;
-  voiceCloneId?: string;
   voiceCloneName?: string;
+  voiceSampleName?: string;
+  voiceSampleDataUrl?: string;
+  providerVoiceId?: string;
   createdAt?: number;
 };
 
@@ -179,6 +181,7 @@ const wizardSteps = [
   ["Message", "What to say"],
   ["Preview", "Send it"]
 ];
+const voiceSetupStorageKey = "birthdaybot:new-ui-voice-setup";
 
 export default function Home() {
   const [view, setView] = useState<View>({ name: "dashboard" });
@@ -192,26 +195,10 @@ export default function Home() {
   );
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadVoiceClone() {
-      try {
-        const response = await fetch("/api/voice-clone");
-        const clone = (await response.json()) as VoiceCloneState;
-
-        if (!cancelled && clone.ready) {
-          setVoiceClone(clone);
-        }
-      } catch {
-        // The setup card can still create the voice clone if status lookup fails.
-      }
+    const savedVoiceSetup = readVoiceSetup();
+    if (savedVoiceSetup?.ready) {
+      setVoiceClone(savedVoiceSetup);
     }
-
-    loadVoiceClone();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   return (
@@ -530,11 +517,11 @@ function Wizard({
       return;
     }
 
-    if (!voiceClone.ready || !voiceClone.voiceCloneId) {
+    if (!voiceClone.ready || !voiceClone.voiceSampleDataUrl) {
       setGeneration({
         phase: "failed",
-        message: "Set up your voice clone once before generating this birthday video.",
-        error: "Record or upload a short voice sample below. BirthdayBot will reuse it for future birthday videos."
+        message: "Set up your voice sample before generating this birthday video.",
+        error: "Record or upload a short voice sample below. BirthdayBot will use it when this video is generated."
       });
       return;
     }
@@ -547,36 +534,46 @@ function Wizard({
         message: "Building the birthday brief."
       });
 
-      const planResponse = await studioApi.createPlan(requestDraft);
+      const planRecord = await studioApi.createPlan(requestDraft);
 
       setGeneration({
         phase: "generating",
         message: "Starting video generation.",
-        requestId: planResponse.requestId,
-        plan: planResponse.plan,
-        caption: planResponse.caption
+        requestId: planRecord.requestId,
+        plan: planRecord.plan,
+        caption: planRecord.caption
       });
 
-      const generationResponse = await studioApi.startGeneration({
-        requestId: planResponse.requestId,
-        draft: requestDraft,
-        plan: planResponse.plan,
-        caption: planResponse.caption
+      const generationJob = await studioApi.startGeneration({
+        ...planRecord,
+        cachedProviderVoiceId: voiceClone.providerVoiceId
       });
 
-      await pollGenerationJob(generationResponse.jobId, (job) => {
+      const handleJob = (job: JobRecord) => {
+        if (job.providerVoiceId) {
+          onVoiceCloneReady(
+            saveVoiceSetup({ ...voiceClone, providerVoiceId: job.providerVoiceId })
+          );
+        }
+
         setGeneration({
           phase: job.stage === "completed" ? "completed" : job.stage === "failed" ? "failed" : "generating",
           message: job.statusMessage,
-          requestId: planResponse.requestId,
-          plan: planResponse.plan,
-          caption: job.caption || planResponse.caption,
+          requestId: planRecord.requestId,
+          plan: planRecord.plan,
+          caption: job.caption || planRecord.caption,
           job,
           videoUrl: job.videoUrl,
           voiceOverUrl: job.voiceOverUrl,
           error: job.error || job.voiceOverError
         });
-      });
+      };
+
+      handleJob(generationJob);
+
+      if (generationJob.stage !== "completed" && generationJob.stage !== "failed") {
+        await pollGenerationJob(generationJob, planRecord, handleJob);
+      }
     } catch (error) {
       setGeneration({
         phase: "failed",
@@ -1007,28 +1004,16 @@ function VoiceSetupCard({ onReady }: { onReady: (clone: VoiceCloneState) => void
     setIsSaving(true);
     setError("");
 
-    try {
-      const response = await fetch("/api/voice-clone", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voiceSampleName: sampleName,
-          voiceSampleDataUrl: sampleDataUrl,
-          voiceConsent: consent
-        })
-      });
-      const body = (await response.json()) as VoiceCloneState & { error?: string };
-
-      if (!response.ok || !body.ready) {
-        throw new Error(body.error || "Voice clone could not be created.");
-      }
-
-      onReady(body);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Voice clone could not be created.");
-    } finally {
-      setIsSaving(false);
-    }
+    onReady(
+      saveVoiceSetup({
+        ready: true,
+        voiceCloneName: sampleName || "Saved voice",
+        voiceSampleName: sampleName || "recorded-voice.webm",
+        voiceSampleDataUrl: sampleDataUrl,
+        createdAt: Date.now()
+      })
+    );
+    setIsSaving(false);
   }
 
   return (
@@ -1413,6 +1398,7 @@ function blankFriend(): Friend {
 function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
   const name = friend.firstName || firstName(friend.name);
   const style = styleLabel(friend.style).toLowerCase();
+  const voiceMode = friend.style === "sing-along" ? "song" : "narrate";
 
   return {
     mode: "advanced",
@@ -1425,8 +1411,11 @@ function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRe
     ].join(" "),
     photoName: friend.photoName || `${name || "birthday"}-photo.png`,
     photoDataUrl: friend.photoDataUrl || "",
-    voiceCloneId: voiceClone.voiceCloneId,
-    voiceCloneName: voiceClone.voiceCloneName,
+    voiceSampleName: voiceClone.voiceSampleName,
+    voiceSampleDataUrl: voiceClone.voiceSampleDataUrl,
+    voiceConsent: Boolean(voiceClone.voiceSampleDataUrl),
+    voiceMode,
+    songStyle: "Acoustic",
     advanced: {
       ...defaultAdvancedSettings,
       tone: friend.style === "serenade" ? "Sentimental" : "Heartfelt",
@@ -1438,10 +1427,17 @@ function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRe
   };
 }
 
-async function pollGenerationJob(jobId: string, onJob: (job: JobRecord) => void) {
+async function pollGenerationJob(
+  initialJob: JobRecord,
+  planRecord: PlanRecord,
+  onJob: (job: JobRecord) => void
+) {
+  let latestJob = initialJob;
+
   for (let attempt = 0; attempt < 160; attempt += 1) {
     await wait(2200);
-    const job = await studioApi.getJob(jobId);
+    const job = await studioApi.checkJob({ job: latestJob, plan: planRecord });
+    latestJob = job;
 
     onJob(job);
 
@@ -1451,6 +1447,32 @@ async function pollGenerationJob(jobId: string, onJob: (job: JobRecord) => void)
   }
 
   throw new Error("Generation is still running. Check back in a moment for the final video.");
+}
+
+function readVoiceSetup(): VoiceCloneState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(voiceSetupStorageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as VoiceCloneState;
+    return parsed.ready && parsed.voiceSampleDataUrl ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveVoiceSetup(next: VoiceCloneState): VoiceCloneState {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(voiceSetupStorageKey, JSON.stringify(next));
+  }
+
+  return next;
 }
 
 function wait(ms: number) {

@@ -1,9 +1,7 @@
 const falClient = vi.hoisted(() => ({
   config: vi.fn(),
   upload: vi.fn(async () => "https://storage.example.com/photo.png"),
-  submit: vi.fn(async () => ({ request_id: "fal_request_123" })),
-  status: vi.fn(),
-  result: vi.fn()
+  submit: vi.fn(async () => ({ request_id: "fal_request_123" }))
 }));
 
 vi.mock("@fal-ai/client", () => ({
@@ -13,11 +11,19 @@ vi.mock("@fal-ai/client", () => ({
       upload: falClient.upload
     },
     queue: {
-      submit: falClient.submit,
-      status: falClient.status,
-      result: falClient.result
+      submit: falClient.submit
     }
   }
+}));
+
+vi.mock("@/lib/tools/generate-music-bed", () => ({
+  generateAiMusicBed: vi.fn(async () => undefined)
+}));
+
+vi.mock("@/lib/langfuse", () => ({
+  getLangfuse: vi.fn(() => null),
+  traceTool: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
+  emitTraceEvent: vi.fn()
 }));
 
 import {
@@ -36,27 +42,24 @@ describe("buildFalPrompt", () => {
       "Happy birthday to one of my favorite people."
     );
 
-    expect(prompt).toContain("User visual direction: Make it a rooftop toast at sunset.");
+    expect(prompt).toContain("User video prompt: Make it a rooftop toast at sunset.");
     expect(prompt).toContain(
-      "Treat the user visual direction as the main creative direction"
+      "Treat the user video prompt as the main creative direction"
     );
-    expect(prompt).toContain(
-      "Embed only this exact tasteful subtle on-screen birthday text directly in the video frames"
+    // The fal model must NOT render any text in-frame — the HTML overlay
+    // (creation-form.tsx ResultVideo) handles the title and the voice-over
+    // carries the message. The full caption should never reach the prompt.
+    expect(prompt).toContain("Do not render any text");
+    expect(prompt).toContain("keep every frame text-free");
+    expect(prompt).not.toContain(
+      "Happy birthday to one of my favorite people."
     );
-    expect(prompt).toContain('"Happy Birthday Maya"');
-    expect(prompt).toContain("Do not add any other words");
-    expect(prompt).toContain("gold, coral, and champagne gradient lettering");
-    expect(prompt).toContain("Avoid plain white text.");
-    expect(prompt).toContain("fun uplifting birthday party music bed");
+    expect(prompt).not.toContain("on-screen birthday text");
+    expect(prompt).not.toContain("gold, coral, and champagne gradient lettering");
+    expect(prompt).toContain("uplifting birthday music bed");
     expect(prompt).toContain("birthday celebration");
     expect(prompt).toContain("cake");
     expect(prompt).toContain("confetti");
-    expect(prompt).toContain("lively birthday party backdrop");
-    expect(prompt).toContain("party lights");
-    expect(prompt).toContain("do not add guests");
-    expect(prompt).toContain("background people");
-    expect(prompt).toContain("extra faces");
-    expect(prompt).toContain("Make it really fun and energetic");
     expect(prompt).toContain("Keep these cues from the photo: Faces; Clothing.");
   });
 
@@ -86,9 +89,10 @@ describe("buildFalPrompt", () => {
     expect(prompt).toContain("Aspect ratio: Landscape");
     expect(prompt).toContain("Music vibe: Playful");
     expect(prompt).toContain("Motion intensity: Dramatic");
-    expect(prompt).toContain("fun playful birthday party music bed");
-    expect(prompt).toContain("tasteful bold on-screen birthday text");
-    expect(prompt).toContain('"Happy Birthday Maya"');
+    expect(prompt).toContain("playful birthday music bed");
+    // captionStyle no longer threaded into the fal prompt — the HTML overlay
+    // is the only on-screen text, so the in-video text directive is gone.
+    expect(prompt).not.toContain("on-screen birthday text");
   });
 
   it("keeps generated video narration-free so ElevenLabs can provide the voice-over", () => {
@@ -101,45 +105,23 @@ describe("buildFalPrompt", () => {
       "Happy birthday, legend. Hope today feels cinematic."
     );
 
-    expect(prompt).toContain("Do not generate native audio");
-    expect(prompt).toContain("only the user's cloned narration");
-    expect(prompt).toContain("low-volume uplifting birthday party music bed");
     expect(prompt).toContain("Do not generate spoken narration");
-    expect(prompt).toContain("crowd noise");
+    expect(prompt).toContain("user's cloned ElevenLabs narration will be muxed");
     expect(prompt).not.toContain("<<<voice_1>>>");
   });
 
-  it("keeps on-video text to only the birthday name line", () => {
+  it("keeps the spoken caption out of the fal prompt entirely", () => {
+    // The caption belongs to the voice-over and the HTML overlay, not the
+    // fal prompt — embedding it in-frame produced gibberish text artifacts.
     const prompt = buildFalPrompt(
       makeDraft(),
       makePlan(),
-      "Happy birthday, legend. I wanted this to feel more personal than a normal text. Hope your day feels cinematic. This extra sentence should stay out."
+      "Happy birthday, legend. I wanted this to feel more personal than a normal text. Hope your day feels cinematic."
     );
 
-    expect(prompt).toContain('"Happy Birthday Maya"');
+    expect(prompt).not.toContain("Happy birthday, legend.");
     expect(prompt).not.toContain("I wanted this to feel more personal");
-    expect(prompt).not.toContain("Hope your day feels cinematic");
-    expect(prompt).not.toContain("This extra sentence should stay out.");
-  });
-
-  it("sanitizes audio cleanup requests before sending a prompt to the video provider", () => {
-    const prompt = buildFalPrompt(
-      makeDraft({
-        prompt:
-          "remove screams in background of audio. audio should be the narration, and some party background music at low volume."
-      }),
-      {
-        ...makePlan(),
-        concept:
-          "Turn the uploaded photo into a cinematic birthday beat centered on remove screams in background of audio."
-      },
-      "Happy birthday, legend."
-    );
-
-    expect(prompt).toContain("User visual direction: Create a cheerful birthday party video");
-    expect(prompt).toContain("gentle festive instrumental music underneath");
-    expect(prompt.toLowerCase()).not.toContain("scream");
-    expect(prompt.toLowerCase()).not.toContain("remove screams");
+    expect(prompt).not.toContain("Hope your day feels cinematic.");
   });
 });
 
@@ -161,10 +143,12 @@ describe("buildFalInput", () => {
     });
     expect(input).not.toHaveProperty("start_image_url");
     expect(input).not.toHaveProperty("generate_audio");
-    expect(input.negative_prompt).toContain("misspelled text");
+    expect(input.negative_prompt).toContain("on-screen text");
+    expect(input.negative_prompt).toContain("captions");
+    expect(input.negative_prompt).toContain("watermark");
   });
 
-  it("enables native audio for default v3 without sending unsupported aspect ratio", () => {
+  it("enables native audio for newer endpoints that support it", () => {
     const input = buildFalInput(
       "fal-ai/kling-video/v3/standard/image-to-video",
       "https://example.com/photo.png",
@@ -184,66 +168,48 @@ describe("buildFalInput", () => {
     expect(input).toMatchObject({
       start_image_url: "https://example.com/photo.png",
       duration: "15",
+      aspect_ratio: "16:9",
       generate_audio: true
     });
     expect(input).not.toHaveProperty("image_url");
-    expect(input).not.toHaveProperty("aspect_ratio");
   });
 
-  it("caps v3 generation to the provider's live 15-second duration limit", () => {
+  it("safeRetry: drops the verbose user-direction layer and lowers cfg_scale", () => {
     const input = buildFalInput(
       "fal-ai/kling-video/v3/standard/image-to-video",
       "https://example.com/photo.png",
-      makeDraft({
-        mode: "advanced",
-        advanced: {
-          ...makeDraft().advanced,
-          videoLength: "30 seconds"
-        }
-      }),
+      makeDraft({ prompt: "Make it a rooftop toast at sunset." }),
       makePlan(),
-      "Happy birthday."
+      "Happy birthday.",
+      { safeRetry: true }
     );
 
-    expect(input.duration).toBe("15");
-    expect(input.prompt?.length).toBeLessThanOrEqual(512);
-    expect(input.prompt).toContain("birthday party video");
-    expect(input.prompt).toContain("balloons");
-    expect(input.prompt).toContain("confetti");
-    expect(input.prompt).toContain("cake candles");
-    expect(input.prompt).toContain("party lights");
-    expect(input.prompt).toContain("do not add guests");
-    expect(input.prompt).toContain("extra faces");
-    expect(input).not.toHaveProperty("multi_prompt");
-    expect(input).not.toHaveProperty("shot_type");
-  });
+    // Prompt should NOT carry the user's verbatim direction.
+    expect(input.prompt).not.toContain("Make it a rooftop toast at sunset.");
+    expect(input.prompt).not.toContain("User video prompt:");
+    expect(input.prompt).not.toContain("Treat the user video prompt");
+    expect(input.prompt).not.toContain("Concept:");
+    expect(input.prompt).not.toContain("Advanced direction:");
 
-  it("keeps Kling provider prompts within the live 512 character limit", () => {
-    const input = buildFalInput(
-      "fal-ai/kling-video/v3/standard/image-to-video",
-      "https://example.com/photo.png",
-      makeDraft({
-        prompt:
-          "remove screams in background of audio. audio should be the narration, and some party background music at low volume."
-      }),
-      {
-        ...makePlan(),
-        concept:
-          "Turn the uploaded photo into a cinematic birthday beat centered on remove screams in background of audio."
-      },
-      "Happy birthday, legend."
+    // It SHOULD carry the plan's safePrompt and identity guardrails.
+    expect(input.prompt).toContain("Internal direction:");
+    expect(input.prompt).toContain(
+      "Keep the people recognizable and preserve identity"
     );
 
-    const prompts = input.multi_prompt?.map((shot) => shot.prompt) || [
-      input.prompt || ""
-    ];
+    // cfg_scale lowers on retry.
+    expect(input.cfg_scale).toBe(0.5);
 
-    expect(prompts.every((prompt) => prompt.length <= 512)).toBe(true);
-    expect(prompts.join(" ").toLowerCase()).not.toContain("scream");
-    expect(input.duration).toBe("15");
+    // negative_prompt collapses to the minimal version (no plan-extension).
+    expect(input.negative_prompt).toContain("on-screen text");
+    expect(input.negative_prompt).toContain("watermark");
+    expect(input.negative_prompt).toContain("changed identity");
+    // Should not include the verbose default-path additions.
+    expect(input.negative_prompt).not.toContain("blur, distort, low quality");
+    expect(input.negative_prompt).not.toContain("scene cut to unrelated");
   });
 
-  it("keeps Kling v2.6 input to fields its schema supports", () => {
+  it("does not ask Kling for audio or voice ids because ElevenLabs owns voice-over", () => {
     const input = buildFalInput(
       "fal-ai/kling-video/v2.6/pro/image-to-video",
       "https://example.com/photo.png",
@@ -256,58 +222,30 @@ describe("buildFalInput", () => {
     );
 
     expect(input).toMatchObject({
-      start_image_url: "https://example.com/photo.png",
-      generate_audio: false
+      start_image_url: "https://example.com/photo.png"
     });
-    expect(input).not.toHaveProperty("aspect_ratio");
-    expect(input).not.toHaveProperty("cfg_scale");
+    expect(input).not.toHaveProperty("generate_audio");
     expect(input).not.toHaveProperty("voice_ids");
     expect(input.prompt).not.toContain("<<<voice_1>>>");
-  });
-
-  it("uses a conservative payload for provider retry attempts", () => {
-    const input = buildFalInput(
-      "fal-ai/kling-video/v3/standard/image-to-video",
-      "https://example.com/photo.png",
-      makeDraft({
-        mode: "advanced",
-        advanced: {
-          ...makeDraft().advanced,
-          videoLength: "30 seconds"
-        }
-      }),
-      makePlan(),
-      "Happy birthday.",
-      { safeRetry: true }
-    );
-
-    expect(input).toMatchObject({
-      start_image_url: "https://example.com/photo.png",
-      duration: "5",
-      generate_audio: false
-    });
-    expect(input.prompt).toContain("Create a cheerful birthday party video");
-    expect(input.prompt).toContain("Do not add captions");
-    expect(input.prompt).not.toContain("Embed only this exact");
-    expect(input).not.toHaveProperty("negative_prompt");
-    expect(input).not.toHaveProperty("cfg_scale");
   });
 });
 
 describe("startVideoGeneration voice-over", () => {
   const originalFalKey = process.env.FAL_KEY;
-  const originalFalVideoModel = process.env.FAL_VIDEO_MODEL;
   const originalElevenLabsKey = process.env.ELEVENLABS_API_KEY;
+  const originalUseAiMusic = process.env.USE_AI_MUSIC;
+
+  beforeEach(() => {
+    process.env.USE_AI_MUSIC = "false";
+  });
 
   afterEach(() => {
     process.env.FAL_KEY = originalFalKey;
-    process.env.FAL_VIDEO_MODEL = originalFalVideoModel;
     process.env.ELEVENLABS_API_KEY = originalElevenLabsKey;
+    process.env.USE_AI_MUSIC = originalUseAiMusic;
     falClient.config.mockClear();
     falClient.upload.mockClear();
     falClient.submit.mockClear();
-    falClient.status.mockReset();
-    falClient.result.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -333,12 +271,6 @@ describe("startVideoGeneration voice-over", () => {
           status: 200,
           headers: { "Content-Type": "audio/mpeg" }
         })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: "ok" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
       );
 
     vi.stubGlobal("fetch", fetchMock);
@@ -354,7 +286,9 @@ describe("startVideoGeneration voice-over", () => {
 
     const result = await startVideoGeneration(planRecord, job);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Two calls: clone + TTS. We no longer DELETE the voice ID after each
+    // generation — the clone is reusable across generations in the session.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/voices/add"
     );
@@ -365,123 +299,41 @@ describe("startVideoGeneration voice-over", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://api.elevenlabs.io/v1/text-to-speech/eleven_voice_123?output_format=mp3_44100_128"
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
-      text: "Happy birthday, legend. Hope today feels cinematic."
+    const ttsBody = fetchMock.mock.calls[1]?.[1]?.body;
+    expect(typeof ttsBody).toBe("string");
+    const ttsParsed = JSON.parse(String(ttsBody)) as {
+      model_id: string;
+      voice_settings: Record<string, number | boolean>;
+      text: string;
+    };
+    expect(ttsParsed.model_id).toBe("eleven_v3");
+    expect(ttsParsed.voice_settings).toEqual({
+      stability: 0.45,
+      similarity_boost: 0.75,
+      style: 0,
+      use_speaker_boost: false
     });
-    expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      "https://api.elevenlabs.io/v1/voices/eleven_voice_123"
-    );
+    // narrationVoiceCue "warm American female, intimate" => [warmly] tag
+    expect(ttsParsed.text.startsWith("[warmly]")).toBe(true);
     expect(result.providerVoiceId).toBe("eleven_voice_123");
     expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,AQID");
     expect(result.providerRequestId).toBe("fal_request_123");
-    expect(result.targetDurationSeconds).toBe(15);
     expect(falClient.submit).toHaveBeenCalledTimes(1);
     expect(planRecord.draft.voiceSampleDataUrl).toBeUndefined();
     expect(planRecord.draft.voiceConsent).toBeUndefined();
   });
 
-  it("strips accidental filler before sending the generated script to ElevenLabs", async () => {
+  it("does not upload the voice sample to ElevenLabs IVC without consent, but still produces narration with a stock voice", async () => {
     process.env.FAL_KEY = "test-fal-key";
     process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ voice_id: "eleven_voice_123" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        })
-      )
-      .mockResolvedValueOnce(
         new Response(new Uint8Array([1, 2, 3]), {
           status: 200,
           headers: { "Content-Type": "audio/mpeg" }
         })
-      )
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    await startVideoGeneration(
-      {
-        ...makePlanRecord(
-          makeDraft({
-            voiceSampleName: "sample.wav",
-            voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
-            voiceConsent: true
-          })
-        ),
-        caption:
-          "Voice-over: um, testing one two. Happy birthday Maya. You make every room brighter."
-      },
-      makeJob()
-    );
-
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
-      text: "Happy birthday Maya. You make every room brighter."
-    });
-  });
-
-  it("retries FAL submission with a minimal payload after a 422 schema rejection", async () => {
-    process.env.FAL_KEY = "test-fal-key";
-    process.env.FAL_VIDEO_MODEL = "fal-ai/kling-video/v2.1/pro/image-to-video";
-    process.env.ELEVENLABS_API_KEY = "";
-    falClient.submit
-      .mockRejectedValueOnce(new Error("Unprocessable Entity"))
-      .mockResolvedValueOnce({ request_id: "fal_retry_123" });
-
-    const result = await startVideoGeneration(makePlanRecord(), makeJob());
-    const submitCalls = falClient.submit.mock.calls as unknown as Array<
-      [string, { input: unknown }]
-    >;
-    const firstInput = submitCalls[0][1].input;
-    const secondInput = submitCalls[1][1].input;
-
-    expect(falClient.submit).toHaveBeenCalledTimes(2);
-    expect(firstInput).toMatchObject({
-      aspect_ratio: "9:16",
-      cfg_scale: 0.65
-    });
-    expect(secondInput).toMatchObject({
-      aspect_ratio: "9:16"
-    });
-    expect(secondInput).not.toHaveProperty("generate_audio");
-    expect(secondInput).not.toHaveProperty("cfg_scale");
-    expect(secondInput).not.toHaveProperty("negative_prompt");
-    expect(result.providerRequestId).toBe("fal_retry_123");
-  });
-
-  it("keeps simplifying FAL submissions when the first schema fallback is also rejected", async () => {
-    process.env.FAL_KEY = "test-fal-key";
-    process.env.FAL_VIDEO_MODEL = "fal-ai/kling-video/v3/standard/image-to-video";
-    process.env.ELEVENLABS_API_KEY = "";
-    falClient.submit
-      .mockRejectedValueOnce(new Error("Unprocessable Entity"))
-      .mockRejectedValueOnce(new Error("Unprocessable Entity"))
-      .mockResolvedValueOnce({ request_id: "fal_minimal_123" });
-
-    const result = await startVideoGeneration(makePlanRecord(), makeJob());
-    const submitCalls = falClient.submit.mock.calls as unknown as Array<
-      [string, { input: unknown }]
-    >;
-    const minimalInput = submitCalls[2][1].input;
-
-    expect(falClient.submit).toHaveBeenCalledTimes(3);
-    expect(minimalInput).toMatchObject({
-      start_image_url: "https://storage.example.com/photo.png",
-      duration: "5"
-    });
-    expect(minimalInput).toHaveProperty("prompt");
-    expect(minimalInput).not.toHaveProperty("multi_prompt");
-    expect(minimalInput).not.toHaveProperty("generate_audio");
-    expect(minimalInput).not.toHaveProperty("cfg_scale");
-    expect(minimalInput).not.toHaveProperty("negative_prompt");
-    expect(result.providerRequestId).toBe("fal_minimal_123");
-  });
-
-  it("does not submit a voice sample to ElevenLabs without confirmed consent", async () => {
-    process.env.FAL_KEY = "test-fal-key";
-    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
-    const fetchMock = vi.fn<typeof fetch>();
+      );
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -495,11 +347,181 @@ describe("startVideoGeneration voice-over", () => {
 
     const result = await startVideoGeneration(planRecord, makeJob());
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.voiceOverError).toBe(
-      "Voice-over skipped because voice-cloning consent was not confirmed."
+    // IVC voices/add must NOT be called - that is the consent guarantee.
+    const ivcCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).endsWith("/v1/voices/add")
     );
+    expect(ivcCalls).toHaveLength(0);
+
+    // Stock TTS must be called and the result has a voice-over URL.
+    const ttsCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/text-to-speech/")
+    );
+    expect(ttsCalls.length).toBeGreaterThan(0);
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,AQID");
+    expect(result.voiceOverError).toBeUndefined();
     expect(result.providerRequestId).toBe("fal_request_123");
+  });
+
+  it("falls back to a stock voice when no voice sample is provided at all", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(new Uint8Array([4, 5, 6]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" }
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(makeDraft());
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/v1/text-to-speech/")
+      )
+    ).toBe(true);
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BAUG");
+    expect(result.voiceOverError).toBeUndefined();
+  });
+
+  it("falls back to a stock voice when ElevenLabs IVC fails (e.g. free tier)", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // 1) IVC voices/add fails (e.g. free tier 401)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "voice cloning not available on this tier" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      // 2) Stock TTS succeeds
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([7, 8, 9]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true
+      })
+    );
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BwgJ");
+    expect(result.voiceOverError).toBeUndefined();
+  });
+
+  it("skips IVC and reuses the cached voice_id when job.providerVoiceId is pre-populated", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // Only TTS (no /voices/add, no delete) since the voice_id is cached.
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([4, 5, 6]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true
+      })
+    );
+
+    // Pre-populate providerVoiceId on the job (simulating a cached clone
+    // from a previous generation in the same session).
+    const job = makeJob({ providerVoiceId: "eleven_voice_cached" });
+
+    const result = await startVideoGeneration(planRecord, job);
+
+    // Must NOT call /v1/voices/add — we already have a clone.
+    const ivcCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).endsWith("/v1/voices/add")
+    );
+    expect(ivcCalls).toHaveLength(0);
+
+    // Must call TTS using the cached voice_id.
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes(
+          "/v1/text-to-speech/eleven_voice_cached?output_format=mp3_44100_128"
+        )
+      )
+    ).toBe(true);
+    expect(result.providerVoiceId).toBe("eleven_voice_cached");
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BAUG");
+  });
+
+  it("speech-to-speech: when voiceMode=speak-yourself and userMessageDataUrl is set, calls /v1/speech-to-speech/{voice_id} with the user's recording", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // 1) IVC voices/add succeeds
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            voice_id: "eleven_voice_s2s",
+            requires_verification: false
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      // 2) Speech-to-speech conversion succeeds
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([10, 11, 12]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true,
+        voiceMode: "speak-yourself",
+        userMessageDataUrl: "data:audio/webm;base64,bWVzc2FnZQ=="
+      })
+    );
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    // Must NOT call /v1/text-to-speech (TTS path).
+    const ttsTextCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/text-to-speech/")
+    );
+    expect(ttsTextCalls).toHaveLength(0);
+
+    // Must call /v1/speech-to-speech/{voice_id} with the user's audio.
+    const s2sCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/v1/speech-to-speech/eleven_voice_s2s")
+    );
+    expect(s2sCalls).toHaveLength(1);
+
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,CgsM");
+    expect(result.voiceOverError).toBeUndefined();
   });
 
   it("fails clearly instead of falling back to the stock demo video when fal is not configured", async () => {
@@ -521,35 +543,17 @@ describe("startVideoGeneration voice-over", () => {
     });
     expect(resolved).not.toHaveProperty("videoUrl");
   });
-
-  it("returns a failed job instead of throwing when provider polling returns 422", async () => {
-    process.env.FAL_KEY = "test-fal-key";
-    falClient.status.mockRejectedValueOnce(new Error("Unprocessable Entity"));
-
-    const resolved = await resolveJobStatus({
-      ...makeJob(),
-      providerRequestId: "fal_request_123",
-      providerEndpoint: "fal-ai/kling-video/v2.6/pro/image-to-video"
-    });
-
-    expect(resolved).toMatchObject({
-      stage: "failed",
-      statusMessage: "The video provider rejected the queued generation request.",
-      error: "Unprocessable Entity"
-    });
-  });
 });
 
 function makeDraft(overrides: Partial<DraftRequest> = {}): DraftRequest {
   return {
     mode: "simple",
-    birthdayName: "Maya",
     prompt: "Make it a rooftop toast at sunset.",
     photoName: "birthday.png",
     photoDataUrl: "data:image/png;base64,ZmFrZQ==",
     advanced: {
       tone: "Heartfelt",
-      sceneIdea: "Birthday party",
+      sceneIdea: "Birthday dinner",
       videoLength: "10 seconds",
       aspectRatio: "Portrait",
       captionStyle: "Subtle",
@@ -571,7 +575,13 @@ function makePlan(): AgentPlan {
     captionApproach: "Short and heartfelt.",
     generationStrategy: "Stay close to the photo while adding celebration details.",
     keepFromPhoto: ["Faces", "Clothing"],
-    surpriseFactor: "A tasteful birthday reveal."
+    surpriseFactor: "A tasteful birthday reveal.",
+    subjectCount: 2,
+    identityAnchors: ["Woman on left", "Man on right"],
+    sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
+    safePrompt: "Preserve exactly two people and animate them naturally.",
+    negativePrompt: "No extra people.",
+    narrationVoiceCue: "warm American female, intimate"
   };
 }
 
@@ -585,7 +595,7 @@ function makePlanRecord(draft = makeDraft()): PlanRecord {
   };
 }
 
-function makeJob(): JobRecord {
+function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
     jobId: "job_123",
     requestId: "req_123",
@@ -593,6 +603,7 @@ function makeJob(): JobRecord {
     statusMessage: "Queued and preparing the creative brief.",
     attempts: 1,
     caption: "Happy birthday, legend.",
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    ...overrides
   };
 }

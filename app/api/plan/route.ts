@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { makeId } from "@/lib/id";
-import { savePlan } from "@/lib/memory-store";
 import { generatePlanAndCaption } from "@/lib/plan-service";
-import { DraftRequest } from "@/lib/types";
+import { DraftRequest, PlanRecord } from "@/lib/types";
+
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +17,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (draft.voiceSampleDataUrl && !draft.voiceConsent) {
+    if (
+      (draft.voiceSampleDataUrl || draft.voiceSampleClips?.length) &&
+      !draft.voiceConsent
+    ) {
       return NextResponse.json(
         { error: "Confirm voice-cloning consent before submitting a voice sample." },
         { status: 400 }
@@ -24,7 +28,8 @@ export async function POST(request: Request) {
     }
 
     const generated = await generatePlanAndCaption(draft);
-    const record = {
+
+    const record: PlanRecord = {
       requestId: makeId("req"),
       draft,
       plan: generated.plan,
@@ -32,13 +37,7 @@ export async function POST(request: Request) {
       createdAt: Date.now()
     };
 
-    savePlan(record);
-
-    return NextResponse.json({
-      requestId: record.requestId,
-      plan: record.plan,
-      caption: record.caption
-    });
+    return NextResponse.json(record);
   } catch (error) {
     return NextResponse.json(
       {
