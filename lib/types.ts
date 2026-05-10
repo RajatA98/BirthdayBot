@@ -27,6 +27,8 @@ export type DraftRequest = {
   prompt: string;
   photoName: string;
   photoDataUrl: string;
+  voiceCloneId?: string;
+  voiceCloneName?: string;
   voiceSampleName?: string;
   voiceSampleDataUrl?: string;
   voiceSampleClips?: string[];
