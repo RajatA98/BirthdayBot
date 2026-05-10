@@ -454,17 +454,27 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         onDrop={onPhotoDrop}
       >
         <span className="upload-title">Shared photo</span>
-        <span className="upload-icon" aria-hidden="true">
-          ⤴
-        </span>
-        <span className="upload-copy strong">
-          {photoName ? photoName : "Drag and drop a photo here"}
-        </span>
-        <span className="upload-meta">
-          {photoName
-            ? "Photo loaded. You can drop another file to replace it."
-            : "or tap to browse from your device"}
-        </span>
+        {photoDataUrl ? (
+          <>
+            <img
+              className="upload-preview"
+              src={photoDataUrl}
+              alt="Selected shared photo preview"
+            />
+            <span className="upload-copy upload-filename">{photoName}</span>
+            <span className="upload-meta">
+              Photo loaded. You can drop another file to replace it.
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="upload-icon" aria-hidden="true">
+              ⤴
+            </span>
+            <span className="upload-copy strong">Drag and drop a photo here</span>
+            <span className="upload-meta">or tap to browse from your device</span>
+          </>
+        )}
       </label>
       <input
         id="photo-upload"

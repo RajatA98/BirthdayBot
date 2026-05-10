@@ -43,14 +43,14 @@ select {
 
 .app-shell {
   min-height: 100vh;
-  padding: 32px 16px 72px;
+  padding: 24px 14px 56px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .hero-card {
-  width: min(100%, 560px);
+  width: min(100%, 640px);
   border: 1px solid var(--line);
   background: var(--card);
   box-shadow: var(--shadow);
@@ -70,14 +70,16 @@ select {
 h1 {
   margin: 0;
   line-height: 1.04;
-  font-size: clamp(2.4rem, 7vw, 4.4rem);
+  font-size: clamp(2.35rem, 8vw, 4.6rem);
+  text-wrap: balance;
 }
 
 .lede {
   margin: 14px 0 0;
   color: var(--muted);
-  font-size: 1rem;
-  line-height: 1.55;
+  font-size: clamp(1rem, 2.7vw, 1.18rem);
+  line-height: 1.5;
+  max-width: 34rem;
 }
 
 .creation-form {
@@ -108,7 +110,8 @@ h1 {
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid var(--line);
   color: var(--muted);
-  padding: 12px 14px;
+  padding: 14px 14px;
+  font-weight: 600;
 }
 
 .mode-pill.active {
@@ -138,7 +141,8 @@ select {
 
 textarea {
   resize: vertical;
-  min-height: 136px;
+  min-height: 124px;
+  line-height: 1.35;
 }
 
 textarea:focus,
@@ -165,9 +169,10 @@ select:focus,
   cursor: pointer;
   place-items: center;
   text-align: center;
-  min-height: 220px;
+  min-height: 210px;
   border-style: dashed;
   border-width: 2px;
+  padding: 22px 18px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 248, 241, 0.82)),
     repeating-linear-gradient(
@@ -207,8 +212,9 @@ select:focus,
 
 .upload-copy.strong {
   color: var(--text);
-  font-size: clamp(1.6rem, 4vw, 2.35rem);
-  line-height: 1.1;
+  font-size: clamp(1.1rem, 3.6vw, 1.55rem);
+  line-height: 1.2;
+  max-width: 22rem;
 }
 
 .upload-icon {
@@ -221,6 +227,27 @@ select:focus,
   color: var(--accent-strong);
   background: rgba(216, 94, 53, 0.1);
   border: 1px solid rgba(216, 94, 53, 0.18);
+}
+
+.upload-preview {
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 22px;
+  border: 1px solid rgba(78, 45, 18, 0.12);
+  box-shadow: 0 14px 32px rgba(77, 43, 15, 0.12);
+}
+
+.upload-filename {
+  width: 100%;
+  max-width: 100%;
+  color: var(--text);
+  font-size: clamp(1rem, 3.8vw, 1.45rem);
+  font-weight: 600;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 input[type="file"] {
@@ -354,9 +381,68 @@ input[type="file"] {
 }
 
 @media (max-width: 640px) {
+  .app-shell {
+    padding: 10px 10px 28px;
+    align-items: flex-start;
+  }
+
   .hero-card {
-    padding: 20px;
-    border-radius: 24px;
+    padding: 16px;
+    border-radius: 22px;
+  }
+
+  h1 {
+    font-size: clamp(1.82rem, 12vw, 3.15rem);
+    line-height: 0.98;
+  }
+
+  .lede {
+    font-size: 0.98rem;
+  }
+
+  .creation-form {
+    gap: 14px;
+    margin-top: 22px;
+  }
+
+  .mode-toggle {
+    gap: 8px;
+  }
+
+  .mode-pill,
+  .primary-action,
+  .ghost-action {
+    min-height: 52px;
+  }
+
+  textarea {
+    min-height: 112px;
+    padding: 12px 14px;
+  }
+
+  .upload-card {
+    min-height: 176px;
+    gap: 10px;
+    padding: 16px 14px;
+  }
+
+  .upload-preview {
+    max-width: 148px;
+    border-radius: 18px;
+  }
+
+  .upload-filename {
+    font-size: 1rem;
+  }
+
+  .upload-meta {
+    font-size: 0.95rem;
+  }
+
+  .status-panel,
+  .summary-card {
+    padding: 16px;
+    border-radius: 20px;
   }
 
   .advanced-grid {

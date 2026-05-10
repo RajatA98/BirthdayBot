@@ -96,6 +96,9 @@ describe("CreationForm", () => {
 
     expect(screen.getByText("birthday-duo.png")).toBeInTheDocument();
     expect(
+      screen.getByAltText("Selected shared photo preview")
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("Photo loaded. You can drop another file to replace it.")
     ).toBeInTheDocument();
   });
