@@ -1066,7 +1066,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     return (
       <section className="status-panel" aria-live="polite">
         <p className="summary-label">Generation in progress</p>
-        <GenerationLoader stage={job.stage} />
+        <GenerationLoader photoUrl={plannedDraft?.photoDataUrl} stage={job.stage} />
         <h2>{stageHeading(job.stage)}</h2>
         <p>{job.statusMessage}</p>
         {job.attempts > 1 ? (
@@ -1835,9 +1835,20 @@ function SelectField({
   );
 }
 
-function GenerationLoader({ stage }: { stage: JobRecord["stage"] }) {
+function GenerationLoader({
+  photoUrl,
+  stage
+}: {
+  photoUrl?: string;
+  stage: JobRecord["stage"];
+}) {
   return (
     <div className="generation-loader" role="img" aria-label="Birthday video loading animation">
+      {photoUrl ? (
+        <span className="loader-photo" aria-hidden="true">
+          <img src={photoUrl} alt="" />
+        </span>
+      ) : null}
       <div className="loader-film" aria-hidden="true">
         <span />
         <span />

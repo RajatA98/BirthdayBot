@@ -31,6 +31,7 @@ type Friend = {
   photo: boolean;
   photoName?: string;
   photoDataUrl?: string;
+  email: string;
   color: ColorName;
   message: string;
   style: "sing-along" | "lip-sync" | "serenade" | "";
@@ -58,6 +59,18 @@ type GenerationState = {
   error?: string;
 };
 
+type EmailSendState = {
+  phase: "idle" | "sending" | "sent" | "failed";
+  message: string;
+};
+
+type PersistedWizardSession = {
+  savedAt: number;
+  view: Extract<View, { name: "wizard" }>;
+  draft: Friend;
+  generation: GenerationState;
+};
+
 const friends: Friend[] = [
   {
     id: 1,
@@ -71,6 +84,7 @@ const friends: Friend[] = [
     relation: "Best friend",
     status: "scheduled",
     photo: true,
+    email: "cecilia@example.com",
     color: "pink",
     message:
       "Happy birthday Cecilia. I hope this lands like a tiny party in your pocket and makes your day feel properly celebrated.",
@@ -88,6 +102,7 @@ const friends: Friend[] = [
     relation: "Family",
     status: "scheduled",
     photo: true,
+    email: "mom@example.com",
     color: "lavender",
     message:
       "Mom, happy birthday from your favorite middle child. Thank you for the snacks, the rides, the patience, the everything.",
@@ -105,6 +120,7 @@ const friends: Friend[] = [
     relation: "Friend",
     status: "draft",
     photo: true,
+    email: "",
     color: "coral",
     message: "",
     style: "",
@@ -121,6 +137,7 @@ const friends: Friend[] = [
     relation: "Family",
     status: "scheduled",
     photo: true,
+    email: "cece@example.com",
     color: "yellow",
     message:
       "Auntie Cece, the original party. Wishing you a year of front-row seats and all the dramatics you can handle.",
@@ -138,6 +155,7 @@ const friends: Friend[] = [
     relation: "Coworker",
     status: "idea",
     photo: false,
+    email: "",
     color: "lime",
     message: "",
     style: "",
@@ -154,9 +172,10 @@ const friends: Friend[] = [
     relation: "Niece/Nephew",
     status: "scheduled",
     photo: true,
+    email: "theo@example.com",
     color: "pink",
     message:
-      "Theo!! Six years old. Auntie Sam loves you bigger than the moon and just-right like a perfect pancake.",
+      "Theo!! Six years old. Auntie loves you bigger than the moon and just-right like a perfect pancake.",
     style: "serenade",
     delivery: "email"
   }
@@ -175,17 +194,23 @@ const styles = [
   { id: "lip-sync", label: "Lip-sync", icon: "message", hint: "Photo speaks your note with subtle facial motion" },
   { id: "serenade", label: "Serenade", icon: "music", hint: "Soft instrumental under your spoken message" }
 ] as const;
+const defaultVideoPrompt =
+  "Make a birthday celebration. Do not include other people. Make it a party with disco ball.";
+const emailSendingAnimationMs = 900;
 const wizardSteps = [
   ["Who", "Name & date"],
   ["Photo", "Their face"],
-  ["Message", "What to say"],
-  ["Preview", "Send it"]
+  ["Prompt", "Video idea"],
+  ["Email", "Send it"]
 ];
 const voiceSetupStorageKey = "birthdaybot:new-ui-voice-setup";
+const wizardSessionStorageKey = "birthdaybot:new-ui-wizard-session";
+const wizardSessionTtlMs = 2 * 60 * 60 * 1000;
 
 export default function Home() {
   const [view, setView] = useState<View>({ name: "dashboard" });
   const [voiceClone, setVoiceClone] = useState<VoiceCloneState>({ ready: false });
+  const [storageReady, setStorageReady] = useState(false);
   const counts = useMemo(
     () => ({
       scheduled: friends.filter((friend) => friend.status === "scheduled").length,
@@ -199,7 +224,20 @@ export default function Home() {
     if (savedVoiceSetup?.ready) {
       setVoiceClone(savedVoiceSetup);
     }
+
+    const savedWizardSession = readWizardSession();
+    if (savedWizardSession) {
+      setView(savedWizardSession.view);
+    }
+
+    setStorageReady(true);
   }, []);
+
+  useEffect(() => {
+    if (storageReady && view.name !== "wizard") {
+      clearWizardSession();
+    }
+  }, [storageReady, view.name]);
 
   return (
     <main className="bb-app">
@@ -266,9 +304,9 @@ function Sidebar({
       <div className="bb-sidebar-bottom">
         <NavButton active={view.name === "settings"} icon="settings" label="Settings" onClick={() => setView({ name: "settings" })} />
         <div className="bb-you-card">
-          <span className="bb-avatar">S</span>
+          <span className="bb-avatar">Y</span>
           <span>
-            <strong>Sam (you)</strong>
+            <strong>You</strong>
             <small><i className={voiceClone.ready ? "" : "needs-voice"} /> {voiceClone.ready ? "voice clone ready" : "voice setup needed"}</small>
           </span>
         </div>
@@ -308,14 +346,13 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
       <Confetti density={34} />
       <div className="bb-dashboard-inner">
         <header className="bb-greeting">
-          <strong>Hey Sam</strong>
-          <span>6 birthdays in flight * 1 draft needs a message</span>
+          <strong>Hey there</strong>
+          <span>6 birthdays in flight * 1 draft needs a prompt</span>
         </header>
 
         <HeroPreview
           friend={hero}
           onOpen={() => setView({ name: "detail", id: hero.id })}
-          onEdit={() => setView({ name: "wizard", step: 2, friend: hero })}
         />
 
         <section className="bb-section">
@@ -355,7 +392,7 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
   );
 }
 
-function HeroPreview({ friend, onOpen, onEdit }: { friend: Friend; onOpen: () => void; onEdit: () => void }) {
+function HeroPreview({ friend, onOpen }: { friend: Friend; onOpen: () => void }) {
   return (
     <section className="bb-hero-preview">
       <button className="bb-hero-card-button bb-plain" onClick={onOpen}>
@@ -368,7 +405,6 @@ function HeroPreview({ friend, onOpen, onEdit }: { friend: Friend; onOpen: () =>
           )}
           <div className="bb-postcard-shade" />
           <Stamp age={friend.age} />
-          <PlayButton />
           <PostcardCaption friend={friend} />
         </div>
         <span className="bb-sticker-note note-days">in {friend.daysUntil} days!</span>
@@ -378,15 +414,14 @@ function HeroPreview({ friend, onOpen, onEdit }: { friend: Friend; onOpen: () =>
       <div className="bb-hero-copy">
         <p className="bb-kicker"><i /> Up next * Sunday, May 10</p>
         <h1>
-          Cecilia&apos;s about to get the <mark>cutest thing</mark> in her inbox.
+          Never forget a <mark>birthday</mark> again.
         </h1>
         <p>
-          Her postcard is sealed and queued for <strong>Thursday at 9 AM</strong>. Hit play to see exactly what
-          she&apos;ll get, or sneak in one more inside joke.
+          Relive your favorite shared experience with them. BirthdayBot automatically keeps track of your
+          friends&apos; birthdays and sends a personalized celebration video with your voice and the two of you together.
         </p>
         <div className="bb-hero-actions">
           <button className="bb-sticker-button" onClick={onOpen}><Icon name="play" /> Play the postcard</button>
-          <button className="bb-outline-button" onClick={onEdit}><Icon name="edit" /> Tweak the message</button>
         </div>
         <div className="bb-meta-strip">
           <Meta label="Demo" value="happy-birthday-cecilia" />
@@ -436,7 +471,7 @@ function BirthdayCard({ friend, onClick }: { friend: Friend; onClick: () => void
       <span className="bb-ready-rail">
         <ReadyDot on={friend.photo} label="photo" />
         <ReadyDot on label="voice" />
-        <ReadyDot on={Boolean(friend.message)} label="message" />
+        <ReadyDot on={Boolean(friend.message)} label="prompt" />
         <ReadyDot on={Boolean(friend.style)} label="style" />
         <em>via {friend.delivery === "text" ? "sms" : friend.delivery}</em>
       </span>
@@ -465,14 +500,78 @@ function Wizard({
   voiceClone: VoiceCloneState;
   onVoiceCloneReady: (clone: VoiceCloneState) => void;
 }) {
-  const [draft, setDraft] = useState<Friend>(() => view.friend ?? blankFriend());
+  const restoredWizard = readWizardSession();
+  const [draft, setDraft] = useState<Friend>(
+    () => view.friend ?? restoredWizard?.draft ?? blankFriend()
+  );
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [generation, setGeneration] = useState<GenerationState>({
-    phase: "idle",
-    message: "Ready to generate the final birthday video."
-  });
+  const [generation, setGeneration] = useState<GenerationState>(
+    () =>
+      restoredWizard?.generation ?? {
+        phase: "idle",
+        message: "Ready to generate the final birthday video."
+      }
+  );
+  const activePollRef = useRef(false);
   const step = view.step;
+
+  useEffect(() => {
+    persistWizardSession({
+      savedAt: Date.now(),
+      view: { name: "wizard", step, friend: draft },
+      draft,
+      generation
+    });
+  }, [draft, generation, step]);
+
+  useEffect(() => {
+    if (
+      activePollRef.current ||
+      generation.phase !== "generating" ||
+      !generation.job ||
+      !generation.plan ||
+      !generation.requestId ||
+      !voiceClone.ready
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    activePollRef.current = true;
+
+    const planRecord: PlanRecord = {
+      requestId: generation.requestId,
+      draft: buildDraftRequest(draft, voiceClone),
+      plan: generation.plan,
+      caption: generation.caption || draft.message,
+      createdAt: generation.job.createdAt || Date.now()
+    };
+
+    pollGenerationJob(generation.job, planRecord, (job) => {
+      if (!cancelled) {
+        applyGenerationJob(job, planRecord);
+      }
+    })
+      .catch((error) => {
+        if (!cancelled) {
+          updateGeneration({
+            phase: "failed",
+            message: "Video generation could not be checked.",
+            error: error instanceof Error ? error.message : "Unknown generation error."
+          });
+        }
+      })
+      .finally(() => {
+        activePollRef.current = false;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Resume only when a saved in-flight job is mounted after a reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generation.job?.jobId, voiceClone.ready]);
 
   useEffect(() => {
     if (!generating) {
@@ -507,9 +606,39 @@ function Wizard({
     setView({ name: "wizard", step: nextStep, friend: draft });
   }
 
+  function updateGeneration(next: GenerationState) {
+    setGeneration(next);
+    persistWizardSession({
+      savedAt: Date.now(),
+      view: { name: "wizard", step, friend: draft },
+      draft,
+      generation: next
+    });
+  }
+
+  function applyGenerationJob(job: JobRecord, planRecord: PlanRecord) {
+    if (job.providerVoiceId) {
+      onVoiceCloneReady(
+        saveVoiceSetup({ ...voiceClone, providerVoiceId: job.providerVoiceId })
+      );
+    }
+
+    updateGeneration({
+      phase: job.stage === "completed" ? "completed" : job.stage === "failed" ? "failed" : "generating",
+      message: job.statusMessage,
+      requestId: planRecord.requestId,
+      plan: planRecord.plan,
+      caption: job.caption || planRecord.caption,
+      job,
+      videoUrl: job.videoUrl,
+      voiceOverUrl: job.voiceOverUrl,
+      error: job.error || job.voiceOverError
+    });
+  }
+
   async function generateVideo() {
     if (!draft.photoDataUrl) {
-      setGeneration({
+      updateGeneration({
         phase: "failed",
         message: "Upload a real photo before generating the video.",
         error: "The dashboard placeholder looks cute, but fal.ai needs an uploaded image file."
@@ -518,7 +647,7 @@ function Wizard({
     }
 
     if (!voiceClone.ready || !voiceClone.voiceSampleDataUrl) {
-      setGeneration({
+      updateGeneration({
         phase: "failed",
         message: "Set up your voice sample before generating this birthday video.",
         error: "Record or upload a short voice sample below. BirthdayBot will use it when this video is generated."
@@ -529,14 +658,14 @@ function Wizard({
     const requestDraft = buildDraftRequest(draft, voiceClone);
 
     try {
-      setGeneration({
+      updateGeneration({
         phase: "planning",
         message: "Building the birthday brief."
       });
 
       const planRecord = await studioApi.createPlan(requestDraft);
 
-      setGeneration({
+      updateGeneration({
         phase: "generating",
         message: "Starting video generation.",
         requestId: planRecord.requestId,
@@ -549,33 +678,18 @@ function Wizard({
         cachedProviderVoiceId: voiceClone.providerVoiceId
       });
 
-      const handleJob = (job: JobRecord) => {
-        if (job.providerVoiceId) {
-          onVoiceCloneReady(
-            saveVoiceSetup({ ...voiceClone, providerVoiceId: job.providerVoiceId })
-          );
-        }
-
-        setGeneration({
-          phase: job.stage === "completed" ? "completed" : job.stage === "failed" ? "failed" : "generating",
-          message: job.statusMessage,
-          requestId: planRecord.requestId,
-          plan: planRecord.plan,
-          caption: job.caption || planRecord.caption,
-          job,
-          videoUrl: job.videoUrl,
-          voiceOverUrl: job.voiceOverUrl,
-          error: job.error || job.voiceOverError
-        });
-      };
-
-      handleJob(generationJob);
+      applyGenerationJob(generationJob, planRecord);
 
       if (generationJob.stage !== "completed" && generationJob.stage !== "failed") {
-        await pollGenerationJob(generationJob, planRecord, handleJob);
+        activePollRef.current = true;
+        await pollGenerationJob(generationJob, planRecord, (job) =>
+          applyGenerationJob(job, planRecord)
+        );
+        activePollRef.current = false;
       }
     } catch (error) {
-      setGeneration({
+      activePollRef.current = false;
+      updateGeneration({
         phase: "failed",
         message: "Video generation could not be started.",
         error: error instanceof Error ? error.message : "Unknown generation error."
@@ -597,7 +711,7 @@ function Wizard({
       <div className="bb-wizard-body">
         {step === 0 ? <StepWho draft={draft} update={update} /> : null}
         {step === 1 ? <StepPhoto draft={draft} update={update} /> : null}
-        {step === 2 ? <StepMessage draft={draft} update={update} /> : null}
+        {step === 2 ? <StepPrompt draft={draft} update={update} /> : null}
         {step === 3 ? (
           <StepPreview
             draft={draft}
@@ -607,7 +721,6 @@ function Wizard({
             generation={generation}
             generating={generating}
             progress={progress}
-            start={() => { setProgress(0); setGenerating(true); }}
             generateVideo={generateVideo}
           />
         ) : null}
@@ -623,9 +736,7 @@ function Wizard({
             Next <Icon name="arrowRight" />
           </button>
         ) : (
-          <button className="bb-sticker-button" onClick={() => setView({ name: "dashboard" })}>
-            <Icon name="check" /> Schedule for {draft.date || "birthday"}
-          </button>
+          <span>send from the email panel</span>
         )}
       </footer>
     </div>
@@ -740,24 +851,24 @@ function StepPhoto({ draft, update }: { draft: Friend; update: (patch: Partial<F
   );
 }
 
-function StepMessage({ draft, update }: { draft: Friend; update: (patch: Partial<Friend>) => void }) {
+function StepPrompt({ draft, update }: { draft: Friend; update: (patch: Partial<Friend>) => void }) {
   return (
     <section className="bb-step-panel">
       <Heading
-        kicker="Step 3 * Words & vibe"
-        title={<>What should the <mark className="pink">message</mark> say?</>}
-        sub="Type it the way you'd say it. We'll match the cadence to your saved voice clone."
+        kicker="Step 3 * Prompt & vibe"
+        title={<>What should the <mark className="pink">video prompt</mark> be?</>}
+        sub="Add anything you want BirthdayBot to use when creating the custom video."
       />
-      <Field label="Message" hint={`${draft.message.length} / 280`}>
+      <Field label="Prompt" hint={`${draft.message.length} / 280`}>
         <textarea
           value={draft.message}
           maxLength={280}
           onChange={(event) => update({ message: event.target.value })}
-          placeholder="Maya!! Another year of being my favorite kind of chaos. Hope your 31st is full of cold martinis..."
+          placeholder={defaultVideoPrompt}
         />
       </Field>
       <div className="bb-rewrite-row">
-        {["Make it shorter", "Funnier", "More heartfelt", "Add an inside joke"].map((label) => (
+        {["More cinematic", "Funnier", "More heartfelt", "Add a surprise"].map((label) => (
           <button key={label}><Icon name="sparkle" /> {label}</button>
         ))}
       </div>
@@ -787,7 +898,6 @@ function StepPreview({
   generation,
   generating,
   progress,
-  start,
   generateVideo
 }: {
   draft: Friend;
@@ -797,77 +907,98 @@ function StepPreview({
   generation: GenerationState;
   generating: boolean;
   progress: number;
-  start: () => void;
   generateVideo: () => void;
 }) {
   const stage = progress < 35 ? "analyzing photo" : progress < 65 ? "mapping voice" : progress < 92 ? "rendering" : "almost done";
   const isGenerating = generation.phase === "planning" || generation.phase === "generating";
+  const [emailState, setEmailState] = useState<EmailSendState>({
+    phase: "idle",
+    message: "Ready to send by email."
+  });
+  const emailMessage =
+    emailState.phase === "idle" && !generation.videoUrl
+      ? "Generate the birthday video before sending the email."
+      : emailState.message;
+
+  async function sendBirthdayEmail() {
+    if (!generation.videoUrl) {
+      setEmailState({
+        phase: "failed",
+        message: "Generate the birthday video before sending the email."
+      });
+      return;
+    }
+
+    setEmailState({ phase: "sending", message: "Sending birthday email..." });
+
+    try {
+      const [sendResult] = await Promise.allSettled([
+        studioApi.sendEmail({
+          to: draft.email,
+          birthdayName: draft.firstName || draft.name,
+          message: draft.message,
+          videoUrl: generation.videoUrl,
+          caption: generation.caption
+        }),
+        wait(emailSendingAnimationMs)
+      ]);
+
+      if (sendResult.status === "rejected") {
+        throw sendResult.reason;
+      }
+
+      setEmailState({
+        phase: "sent",
+        message: `Email sent to ${draft.email}.`
+      });
+    } catch (error) {
+      setEmailState({
+        phase: "failed",
+        message: error instanceof Error ? error.message : "Email could not be sent."
+      });
+    }
+  }
 
   return (
     <section className="bb-step-panel">
       <Heading
-        kicker="Step 4 * Final look"
-        title={generating ? <>Stitching together <mark className="yellow">{draft.firstName || "their"}</mark>&apos;s video...</> : <>Looks <mark className="lime">great.</mark> Wanna send it?</>}
-        sub={generating ? "Photo + voice + message + style are coming together." : "It'll go out on the morning of their birthday. You can edit any time before."}
+        kicker="Step 4 * Send email"
+        title={isGenerating ? <>Stitching together <mark className="yellow">{draft.firstName || "their"}</mark>&apos;s video...</> : <>Ready to <mark className="lime">email</mark> it?</>}
+        sub={isGenerating ? "Photo + voice + prompt + style are coming together." : "Send the finished birthday note and video straight to their inbox."}
       />
       <div className="bb-preview-layout">
         <div className={`bb-postcard swatch-${draft.color} is-preview`}>
           {generation.videoUrl ? (
-            <video className="bb-generated-video" controls playsInline src={generation.videoUrl} />
+            <GeneratedVideo
+              videoUrl={generation.videoUrl}
+              voiceOverUrl={generation.voiceOverUrl}
+            />
+          ) : isGenerating ? (
+            <VideoLoadingPreview
+              birthdayName={draft.firstName || draft.name}
+              message={generation.message}
+              photoUrl={draft.photoDataUrl}
+              progress={progressForGeneration(generation)}
+              stage={generation.job?.stage || generation.phase}
+            />
           ) : (
-            <Photo friend={{ ...draft, photo: true }} size="fill" />
+            <DefaultPreviewVideo videoUrl={draft.demoVideoUrl || "/demo.mp4"} />
           )}
-          {!generation.videoUrl ? <div className="bb-postcard-shade" /> : null}
-          {!generating && !isGenerating && !generation.videoUrl ? <PlayButton /> : null}
-          {generating || isGenerating ? (
-            <div className="bb-rendering">
+          {!generation.videoUrl && !isGenerating ? <div className="bb-postcard-shade" /> : null}
+          {generating ? (
+            <div className="bb-rendering" role="status">
               <span />
-              <strong>{isGenerating ? generation.message : stage}</strong>
-              <i><b style={{ width: `${isGenerating ? 64 : progress}%` }} /></i>
+              <strong>{stage}</strong>
+              <i><b style={{ width: `${progress}%` }} /></i>
             </div>
           ) : null}
-          {!generation.videoUrl ? <PostcardCaption friend={draft} /> : null}
+          {!generation.videoUrl && !isGenerating ? <PostcardCaption friend={draft} /> : null}
         </div>
         <aside className="bb-preview-side">
-          {!voiceClone.ready ? (
-            <VoiceSetupCard onReady={onVoiceCloneReady} />
-          ) : (
-            <section className="bb-voice-ready-card">
-              <span className="bb-card-heading">Account voice</span>
-              <strong>Voice clone ready</strong>
-              <small>{voiceClone.voiceCloneName || "Saved voice"} will be reused for every birthday video.</small>
-            </section>
-          )}
-          <section>
-            <span className="bb-card-heading">Sends on <StatusChip status="scheduled" /></span>
-            <strong>{draft.dateLong || draft.date || "Pick a date"}</strong>
-            <small>at 9:00 AM in their timezone</small>
-            <div className="bb-segmented">
-              {[
-                ["text", "Text"],
-                ["email", "Email"],
-                ["link", "Link"]
-              ].map(([id, label]) => (
-                <button key={id} className={draft.delivery === id ? "is-active" : ""} onClick={() => update({ delivery: id as Friend["delivery"] })}>{label}</button>
-              ))}
-            </div>
-          </section>
-          <section>
-            <span className="bb-card-heading">Recipe</span>
-            <Recipe label="Photo" value={draft.photoName || "maya-grad-2024.jpg"} ok={draft.photo} />
-            <Recipe
-              label="Voice"
-              value={voiceClone.ready ? "your cloned voice * saved" : "set up once above"}
-              ok={voiceClone.ready}
-            />
-            <Recipe label="Message" value={draft.message || "Needs message"} ok={Boolean(draft.message)} />
-            <Recipe label="Style" value={styleLabel(draft.style)} ok={Boolean(draft.style)} />
-          </section>
           <section className={`bb-generation-card is-${generation.phase}`}>
             <span className="bb-card-heading">Video output</span>
             <strong>{generation.phase === "completed" ? "Video ready" : generation.phase === "failed" ? "Needs attention" : "Generate video"}</strong>
             <small>{generation.error || generation.message}</small>
-            {generation.voiceOverUrl ? <audio controls src={generation.voiceOverUrl} /> : null}
             <button
               className="bb-sticker-button"
               onClick={generateVideo}
@@ -876,10 +1007,193 @@ function StepPreview({
               <Icon name="play" /> {isGenerating ? "Generating..." : generation.videoUrl ? "Generate again" : "Generate birthday video"}
             </button>
           </section>
-          <button className="bb-outline-button" onClick={start}><Icon name="sparkle" /> Regenerate preview</button>
+          {!voiceClone.ready ? <VoiceSetupCard onReady={onVoiceCloneReady} /> : null}
+          <section className={`bb-generation-card is-${emailState.phase === "failed" ? "failed" : emailState.phase === "sent" ? "completed" : "idle"}`}>
+            <span className="bb-card-heading">Send email</span>
+            <strong>{emailState.phase === "sent" ? "Email sent" : "Email this birthday video"}</strong>
+            <Field label="Recipient">
+              <input
+                type="email"
+                value={draft.email}
+                onChange={(event) => update({ email: event.target.value, delivery: "email" })}
+                placeholder="maya@example.com"
+              />
+            </Field>
+            {emailState.phase === "sending" ? <EmailSendingAnimation /> : null}
+            <small className={emailState.phase === "failed" ? "bb-generation-error" : ""}>{emailMessage}</small>
+            <button
+              className="bb-sticker-button"
+              onClick={sendBirthdayEmail}
+              disabled={emailState.phase === "sending" || isGenerating || !generation.videoUrl}
+            >
+              <Icon name="send" /> {emailState.phase === "sending" ? "Sending..." : "Send email"}
+            </button>
+          </section>
         </aside>
       </div>
     </section>
+  );
+}
+
+function VideoLoadingPreview({
+  birthdayName,
+  message,
+  photoUrl,
+  progress,
+  stage
+}: {
+  birthdayName: string;
+  message: string;
+  photoUrl?: string;
+  progress: number;
+  stage: GenerationState["phase"] | JobRecord["stage"];
+}) {
+  const resolvedName = firstName(birthdayName) || "friend";
+
+  return (
+    <div
+      className={`bb-video-loading-preview stage-${stage}`}
+      role="status"
+      aria-label="Video is generating"
+    >
+      {photoUrl ? (
+        <>
+          <img className="bb-loading-photo bg" src={photoUrl} alt="" />
+          <img className="bb-loading-photo hero" src={photoUrl} alt="" />
+        </>
+      ) : (
+        <span className="bb-loading-photo fallback">{resolvedName[0]?.toUpperCase() || "B"}</span>
+      )}
+      <span className="bb-loading-vignette" aria-hidden="true" />
+      <span className="bb-loading-frame" aria-hidden="true" />
+      <span className="bb-loading-scan" aria-hidden="true" />
+      <span className="bb-loading-sparkles" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+      <div className="bb-loading-copy">
+        <span>Generating</span>
+        <strong>{message}</strong>
+        <em>Animating {resolvedName}&apos;s photo</em>
+        <i>
+          <b style={{ width: `${progress}%` }} />
+        </i>
+      </div>
+    </div>
+  );
+}
+
+function DefaultPreviewVideo({ videoUrl }: { videoUrl: string }) {
+  return (
+    <video
+      className="bb-default-preview-video"
+      src={videoUrl}
+      autoPlay
+      muted
+      loop
+      playsInline
+      aria-label="Default birthday video preview"
+    />
+  );
+}
+
+function GeneratedVideo({
+  videoUrl,
+  voiceOverUrl
+}: {
+  videoUrl: string;
+  voiceOverUrl?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function syncVoiceOver() {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (!video || !audio) {
+      return;
+    }
+
+    audio.currentTime = video.currentTime;
+  }
+
+  async function playVoiceOver() {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (!video || !audio) {
+      return;
+    }
+
+    audio.currentTime = video.currentTime;
+    audio.volume = video.volume;
+    audio.muted = video.muted;
+    await audio.play().catch(() => undefined);
+  }
+
+  function pauseVoiceOver() {
+    audioRef.current?.pause();
+  }
+
+  function resetVoiceOver() {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    audio.pause();
+    audio.currentTime = 0;
+  }
+
+  function mirrorVideoVolume() {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (!video || !audio) {
+      return;
+    }
+
+    audio.volume = video.volume;
+    audio.muted = video.muted;
+  }
+
+  return (
+    <>
+      <video
+        ref={videoRef}
+        className="bb-generated-video"
+        controls
+        playsInline
+        src={videoUrl}
+        onEnded={resetVoiceOver}
+        onPause={pauseVoiceOver}
+        onPlay={playVoiceOver}
+        onSeeked={syncVoiceOver}
+        onVolumeChange={mirrorVideoVolume}
+      />
+      {voiceOverUrl ? (
+        <audio ref={audioRef} preload="auto" src={voiceOverUrl} />
+      ) : null}
+    </>
+  );
+}
+
+function EmailSendingAnimation() {
+  return (
+    <div className="bb-email-sending" role="status" aria-label="Sending email">
+      <span className="bb-email-orbit" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </span>
+      <b aria-hidden>
+        <Icon name="send" />
+      </b>
+    </div>
   );
 }
 
@@ -1062,7 +1376,7 @@ function DetailView({ id, setView }: { id: number; setView: (view: View) => void
       <section className="bb-detail-layout">
         <div className={`bb-postcard swatch-${friend.color} is-detail`}>
           {friend.demoVideoUrl ? (
-            <video className="bb-generated-video" controls playsInline src={friend.demoVideoUrl} />
+            <GeneratedVideo videoUrl={friend.demoVideoUrl} />
           ) : (
             <>
               <Photo friend={friend} size="fill" />
@@ -1079,7 +1393,7 @@ function DetailView({ id, setView }: { id: number; setView: (view: View) => void
           <section className="bb-recipe-card">
             <Recipe label="Photo" value={`${friend.firstName.toLowerCase()}.jpg`} ok={friend.photo} />
             <Recipe label="Voice" value="your cloned voice * saved" ok />
-            <Recipe label="Message" value={friend.message ? `${friend.message.length} characters` : "missing"} ok={Boolean(friend.message)} />
+            <Recipe label="Prompt" value={friend.message ? `${friend.message.length} characters` : "missing"} ok={Boolean(friend.message)} />
             <Recipe label="Style" value={styleLabel(friend.style)} ok={Boolean(friend.style)} />
             <Recipe label="Sends" value={`${friend.dateLong} * ${friend.delivery}`} ok />
           </section>
@@ -1183,7 +1497,6 @@ function SentView() {
               <span><strong>{sent.name}</strong><small>sent {sent.date}</small></span>
             </span>
             <span className="bb-card-mid">
-              <span><small>reaction</small><strong>{sent.reaction}</strong></span>
               <StatusChip status="sent" />
             </span>
           </article>
@@ -1388,27 +1701,22 @@ function blankFriend(): Friend {
     relation: "Friend",
     status: "draft",
     photo: false,
+    email: "",
     color: "pink",
-    message: "",
+    message: defaultVideoPrompt,
     style: "sing-along",
-    delivery: "text"
+    delivery: "email"
   };
 }
 
 function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
   const name = friend.firstName || firstName(friend.name);
-  const style = styleLabel(friend.style).toLowerCase();
   const voiceMode = friend.style === "sing-along" ? "song" : "narrate";
 
   return {
     mode: "advanced",
     birthdayName: name,
-    prompt: [
-      friend.message || `Make a warm birthday video for ${name || "my friend"}.`,
-      `Style: ${style}.`,
-      `Relation: ${friend.relation}.`,
-      "Use a cheerful birthday-party look with confetti, candles, and a sendable personal feel."
-    ].join(" "),
+    prompt: (friend.message || defaultVideoPrompt).trim(),
     photoName: friend.photoName || `${name || "birthday"}-photo.png`,
     photoDataUrl: friend.photoDataUrl || "",
     voiceSampleName: voiceClone.voiceSampleName,
@@ -1425,6 +1733,39 @@ function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRe
       motionIntensity: friend.style === "lip-sync" ? "Subtle" : "Moderate"
     }
   };
+}
+
+function progressForGeneration(generation: GenerationState) {
+  if (generation.phase === "planning") {
+    return 18;
+  }
+
+  if (generation.phase === "completed") {
+    return 100;
+  }
+
+  const stage = generation.job?.stage;
+
+  switch (stage) {
+    case "queued":
+      return 28;
+    case "analyzing":
+      return 42;
+    case "writing":
+      return 54;
+    case "generating":
+      return 72;
+    case "retrying":
+      return 66;
+    case "finalizing":
+      return 90;
+    case "completed":
+      return 100;
+    case "failed":
+      return 100;
+    default:
+      return generation.phase === "generating" ? 35 : 0;
+  }
 }
 
 async function pollGenerationJob(
@@ -1473,6 +1814,57 @@ function saveVoiceSetup(next: VoiceCloneState): VoiceCloneState {
   }
 
   return next;
+}
+
+function readWizardSession(): PersistedWizardSession | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(wizardSessionStorageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as PersistedWizardSession;
+    if (Date.now() - parsed.savedAt > wizardSessionTtlMs) {
+      clearWizardSession();
+      return null;
+    }
+
+    return parsed.view?.name === "wizard" && parsed.draft ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistWizardSession(session: PersistedWizardSession) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      wizardSessionStorageKey,
+      JSON.stringify(session)
+    );
+  } catch {
+    // If a huge local photo exceeds the browser quota, keep the live UI
+    // working and let the current in-memory state carry the session.
+  }
+}
+
+function clearWizardSession() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(wizardSessionStorageKey);
+  } catch {
+    // Ignore storage failures; this cache is only for reload recovery.
+  }
 }
 
 function wait(ms: number) {

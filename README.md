@@ -78,6 +78,9 @@ OPENAI_CAPTION_MODEL=gpt-4.1-mini
 FAL_KEY=
 FAL_VIDEO_MODEL=fal-ai/kling-video/v3/standard/image-to-video
 
+RESEND_API_KEY=
+BIRTHDAYBOT_EMAIL_FROM="BirthdayBot <hello@your-domain.com>"
+
 ELEVENLABS_API_KEY=
 ELEVENLABS_TTS_MODEL=eleven_multilingual_v2
 USE_AI_MUSIC=
@@ -92,6 +95,7 @@ Notes:
 - If `OPENAI_API_KEY` is missing, the app falls back to mock planning and caption generation.
 - If `FAL_KEY` is missing, the app fails the job explicitly. The stock-demo fallback was removed — generation now requires a real fal key.
 - `FAL_VIDEO_MODEL` should stay on `fal-ai/kling-video/v3/standard/image-to-video` unless the team is intentionally testing a different endpoint.
+- `RESEND_API_KEY` powers the final email send action. `BIRTHDAYBOT_EMAIL_FROM` should be a Resend-verified sender for production.
 - `ELEVENLABS_API_KEY` powers voice cloning, TTS, the speech-to-speech (Voice Changer) path used by speak-yourself mode, the instrumental music bed, AND the sung birthday song in song mode. Without it, the mux step uses `public/audio/party-music.mp3` (or a synthetic lavfi tone if that file is missing) and narration falls back to a stock voice.
 - `ELEVENLABS_TTS_MODEL` defaults to `eleven_v3` (most expressive; supports inline audio tags like `[warmly]` / `[excited]`). Older `eleven_multilingual_v2` works too if you're chasing latency.
 - `USE_AI_MUSIC` overrides the AI music behavior: set `true` to force-on, `false` to force-off. If unset, AI music is automatically enabled whenever `ELEVENLABS_API_KEY` is present, with safe fallback to the static file on any failure.

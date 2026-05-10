@@ -2,6 +2,8 @@ import { fal } from "@fal-ai/client";
 
 import {
   DraftRequest,
+  EmailSendRequest,
+  EmailSendResponse,
   GenerateRequest,
   JobCheckRequest,
   JobRecord,
@@ -20,6 +22,7 @@ export type StudioApi = {
   createPlan(input: DraftRequest): Promise<PlanRecord>;
   startGeneration(input: GenerateRequest): Promise<JobRecord>;
   checkJob(input: JobCheckRequest): Promise<JobRecord>;
+  sendEmail(input: EmailSendRequest): Promise<EmailSendResponse>;
 };
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -60,5 +63,14 @@ export const studioApi: StudioApi = {
     });
 
     return parseJson<JobRecord>(response);
+  },
+  async sendEmail(input) {
+    const response = await fetch("/api/email/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    });
+
+    return parseJson<EmailSendResponse>(response);
   }
 };

@@ -1,16 +1,16 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { fal } from "@fal-ai/client";
+import ffmpegStaticPath from "ffmpeg-static";
 
 import { traceTool } from "@/lib/langfuse";
 
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
 
 const partyMusicAssetPath = join(
   process.cwd(),
@@ -22,6 +22,12 @@ const defaultVideoDurationSeconds = 15;
 const maxMuxedVideoDurationSeconds = 20;
 const finalVideoBitrateKbps = 4500;
 const finalVideoAudioBitrateKbps = 96;
+const tracedFfmpegAssetPath = join(
+  process.cwd(),
+  "node_modules",
+  "ffmpeg-static",
+  process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+);
 
 export async function muxVoiceOverIntoVideo(
   videoUrl: string,
@@ -380,10 +386,13 @@ async function providerErrorMessage(response: Response, fallback: string) {
 }
 
 function getFfmpegPath() {
-  try {
-    const moduleName = ["ffmpeg", "-static"].join("");
-    return require(moduleName) as string | undefined;
-  } catch {
-    return undefined;
+  if (typeof ffmpegStaticPath === "string" && ffmpegStaticPath) {
+    return ffmpegStaticPath;
   }
+
+  if (existsSync(tracedFfmpegAssetPath)) {
+    return tracedFfmpegAssetPath;
+  }
+
+  return undefined;
 }
