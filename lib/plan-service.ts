@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import { buildMockCaption, buildMockPlan } from "@/lib/agent-plan";
+import { getLangfuse } from "@/lib/langfuse";
 import { DraftRequest } from "@/lib/types";
 
 const jsonSchema = {
@@ -40,17 +41,25 @@ const jsonSchema = {
 
 export async function generatePlanAndCaption(input: DraftRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
+  const langfuse = getLangfuse();
+
+  const trace = langfuse?.trace({
+    name: "plan-generation",
+    input: { prompt: input.prompt, mode: input.mode },
+    metadata: { mode: input.mode, advanced: input.advanced }
+  });
 
   if (!apiKey) {
     const plan = buildMockPlan(input);
-    return {
-      plan,
-      caption: buildMockCaption(input, plan),
-      source: "mock" as const
-    };
+    const caption = buildMockCaption(input, plan);
+    trace?.update({ output: { plan, caption }, metadata: { source: "mock" } });
+    await langfuse?.flushAsync();
+    return { plan, caption, source: "mock" as const };
   }
 
   const client = new OpenAI({ apiKey });
+  const planModel = process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini";
+  const captionModel = process.env.OPENAI_CAPTION_MODEL || "gpt-4.1-mini";
   const prompt = [
     "You are BirthdayBot's planning agent.",
     "Analyze the uploaded shared birthday photo and the user prompt.",
@@ -61,51 +70,58 @@ export async function generatePlanAndCaption(input: DraftRequest) {
     `Advanced settings: ${JSON.stringify(input.advanced)}`
   ].join("\n");
 
+  const planGen = trace?.generation({
+    name: "plan",
+    model: planModel,
+    input: [{ role: "user", content: prompt }]
+  });
+
   const planResponse = await client.responses.create({
-    model: process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini",
+    model: planModel,
     input: [
       {
         role: "user",
         content: [
           { type: "input_text", text: prompt },
-          {
-            type: "input_image",
-            image_url: input.photoDataUrl,
-            detail: "auto"
-          }
+          { type: "input_image", image_url: input.photoDataUrl, detail: "auto" }
         ]
       }
     ],
-    text: {
-      format: {
-        type: "json_schema",
-        ...jsonSchema
-      }
-    }
+    text: { format: { type: "json_schema", ...jsonSchema } }
   });
 
   const plan = JSON.parse(planResponse.output_text);
-
-  const captionResponse = await client.responses.create({
-    model: process.env.OPENAI_CAPTION_MODEL || "gpt-4.1-mini",
-    input: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: `Write a short, personal birthday caption that matches this plan: ${JSON.stringify(
-              plan
-            )}. Keep it heartfelt, sendable, and natural.`
-          }
-        ]
-      }
-    ]
+  planGen?.end({
+    output: plan,
+    usage: {
+      input: planResponse.usage?.input_tokens,
+      output: planResponse.usage?.output_tokens
+    }
   });
 
-  return {
-    plan,
-    caption: captionResponse.output_text.trim(),
-    source: "openai" as const
-  };
+  const captionPrompt = `Write a short, personal birthday caption that matches this plan: ${JSON.stringify(plan)}. Keep it heartfelt, sendable, and natural.`;
+  const captionGen = trace?.generation({
+    name: "caption",
+    model: captionModel,
+    input: [{ role: "user", content: captionPrompt }]
+  });
+
+  const captionResponse = await client.responses.create({
+    model: captionModel,
+    input: [{ role: "user", content: [{ type: "input_text", text: captionPrompt }] }]
+  });
+
+  const caption = captionResponse.output_text.trim();
+  captionGen?.end({
+    output: caption,
+    usage: {
+      input: captionResponse.usage?.input_tokens,
+      output: captionResponse.usage?.output_tokens
+    }
+  });
+
+  trace?.update({ output: { plan, caption }, metadata: { source: "openai" } });
+  await langfuse?.flushAsync();
+
+  return { plan, caption, source: "openai" as const };
 }

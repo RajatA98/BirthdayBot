@@ -5,6 +5,7 @@ import React, {
   FormEvent,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 
@@ -20,9 +21,12 @@ import {
 type FormErrors = {
   photo?: string;
   prompt?: string;
+  voiceSample?: string;
+  voiceConsent?: string;
 };
 
 type Phase = "draft" | "planning" | "review" | "generating" | "result";
+type RecordingState = "idle" | "recording" | "processing";
 
 const tones = [
   "Heartfelt",
@@ -43,14 +47,28 @@ const sceneIdeas = [
 const motionLevels = ["Subtle", "Moderate", "Dramatic"] as const;
 const aspectRatios = ["Portrait", "Square", "Landscape"] as const;
 
+const voiceSampleScript =
+  "Happy birthday. I wanted to make this feel a little more personal than a regular message. I am grateful for the easy laughs, the small stories we keep returning to, and the way you make ordinary days feel warmer. I hope this year brings you good surprises, real rest, and people who show up for you in the ways that matter. You deserve a day that feels generous, joyful, and completely yours. So here is to another year of memories, tiny adventures, and moments that remind you how loved you are.";
+
 export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [mode, setMode] = useState<"simple" | "advanced">("simple");
   const [prompt, setPrompt] = useState("");
   const [photoName, setPhotoName] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState("");
+  const [voiceSampleName, setVoiceSampleName] = useState("");
+  const [voiceSampleDataUrl, setVoiceSampleDataUrl] = useState("");
+  const [voiceConsent, setVoiceConsent] = useState(false);
+  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [voiceSampleSource, setVoiceSampleSource] = useState<
+    "" | "recorded" | "uploaded"
+  >("");
+  const [isRecorderSupported, setIsRecorderSupported] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
   const [phase, setPhase] = useState<Phase>("draft");
   const [requestId, setRequestId] = useState("");
+  const [plannedDraft, setPlannedDraft] = useState<DraftRequest | null>(null);
   const [plan, setPlan] = useState<AgentPlan | null>(null);
   const [caption, setCaption] = useState("");
   const [job, setJob] = useState<JobRecord | null>(null);
@@ -60,8 +78,38 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   const [advanced, setAdvanced] = useState<AdvancedSettings>(
     defaultAdvancedSettings
   );
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isAdvanced = mode === "advanced";
+
+  useEffect(() => {
+    setIsRecorderSupported(
+      typeof window !== "undefined" &&
+        "MediaRecorder" in window &&
+        Boolean(navigator.mediaDevices?.getUserMedia)
+    );
+
+    return () => {
+      stopVoiceStream(voiceStreamRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (recordingState !== "recording") {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setRecordingSeconds((current) => current + 1);
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [recordingState]);
 
   useEffect(() => {
     if (phase !== "generating" || !job) {
@@ -138,6 +186,154 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setErrors((current) => ({ ...current, photo: undefined }));
   }
 
+  async function onVoiceSampleChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextFile = event.target.files?.[0];
+
+    if (!nextFile) {
+      setVoiceSampleName("");
+      setVoiceSampleDataUrl("");
+      setVoiceSampleSource("");
+      setVoiceConsent(false);
+      return;
+    }
+
+    if (
+      !nextFile.type.startsWith("audio/") &&
+      !nextFile.type.startsWith("video/")
+    ) {
+      setVoiceSampleName("");
+      setVoiceSampleDataUrl("");
+      setVoiceSampleSource("");
+      setVoiceConsent(false);
+      setErrors((current) => ({
+        ...current,
+        voiceSample: "Use one audio or video file for the voice sample."
+      }));
+      return;
+    }
+
+    setVoiceSampleName(nextFile.name);
+    setVoiceSampleDataUrl(await fileToDataUrl(nextFile));
+    setVoiceSampleSource("uploaded");
+    setVoiceConsent(false);
+    setRecordingError("");
+    setErrors((current) => ({
+      ...current,
+      voiceSample: undefined,
+      voiceConsent: undefined
+    }));
+  }
+
+  async function startVoiceRecording() {
+    if (!isRecorderSupported) {
+      setRecordingError(
+        "Voice recording is not available in this browser. Upload an audio file instead."
+      );
+      return;
+    }
+
+    setRecordingError("");
+    setRecordingSeconds(0);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = preferredRecordingMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      voiceStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      voiceChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setRecordingError(
+          "Recording stopped before a usable voice sample was saved."
+        );
+        setRecordingState("idle");
+        stopVoiceStream(voiceStreamRef.current);
+        voiceStreamRef.current = null;
+      };
+
+      recorder.onstop = async () => {
+        setRecordingState("processing");
+        const recordingType = recorder.mimeType || mimeType || "audio/webm";
+        const recording = new Blob(voiceChunksRef.current, {
+          type: recordingType
+        });
+
+        stopVoiceStream(voiceStreamRef.current);
+        voiceStreamRef.current = null;
+
+        if (!recording.size) {
+          setRecordingError(
+            "The recording was empty. Try again and speak for at least 15 seconds."
+          );
+          setRecordingState("idle");
+          return;
+        }
+
+        try {
+          setVoiceSampleName(
+            `recorded-voice.${extensionForMimeType(recordingType)}`
+          );
+          setVoiceSampleDataUrl(await fileToDataUrl(recording));
+          setVoiceSampleSource("recorded");
+          setVoiceConsent(false);
+          setErrors((current) => ({
+            ...current,
+            voiceSample: undefined,
+            voiceConsent: undefined
+          }));
+        } catch {
+          setRecordingError(
+            "The recording could not be saved. Try uploading an audio file instead."
+          );
+        } finally {
+          setRecordingState("idle");
+        }
+      };
+
+      recorder.start();
+      setRecordingState("recording");
+    } catch {
+      setRecordingState("idle");
+      stopVoiceStream(voiceStreamRef.current);
+      voiceStreamRef.current = null;
+      setRecordingError(
+        "Microphone access was blocked. Allow the microphone or upload an audio file."
+      );
+    }
+  }
+
+  function clearVoiceSample() {
+    setVoiceSampleName("");
+    setVoiceSampleDataUrl("");
+    setVoiceSampleSource("");
+    setVoiceConsent(false);
+    setRecordingError("");
+    setErrors((current) => ({
+      ...current,
+      voiceSample: undefined,
+      voiceConsent: undefined
+    }));
+  }
+
+  function stopVoiceRecording() {
+    const recorder = mediaRecorderRef.current;
+
+    if (recorder?.state === "recording") {
+      setRecordingState("processing");
+      recorder.stop();
+    }
+  }
+
   function validate() {
     const nextErrors: FormErrors = {};
 
@@ -147,6 +343,11 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
     if (!prompt.trim()) {
       nextErrors.prompt = "Describe what the birthday video should feel like.";
+    }
+
+    if (voiceSampleDataUrl && !voiceConsent) {
+      nextErrors.voiceConsent =
+        "Confirm you have the rights to clone this voice before continuing.";
     }
 
     setErrors(nextErrors);
@@ -159,6 +360,9 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       prompt: prompt.trim(),
       photoName,
       photoDataUrl,
+      voiceSampleName: voiceSampleName || undefined,
+      voiceSampleDataUrl: voiceSampleDataUrl || undefined,
+      voiceConsent: voiceSampleDataUrl ? voiceConsent : undefined,
       advanced
     };
   }
@@ -171,6 +375,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     try {
       const response = await api.createPlan(draft);
       setRequestId(response.requestId);
+      setPlannedDraft(draft);
       setPlan(response.plan);
       setCaption(response.caption);
       setPhase("review");
@@ -193,19 +398,26 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   }
 
   async function startGeneration() {
-    if (!requestId) {
+    if (!requestId || !plannedDraft || !plan) {
       return;
     }
 
     setStatusError("");
     setIsStartingGeneration(true);
     try {
-      const response = await api.startGeneration(requestId);
+      const response = await api.startGeneration({
+        requestId,
+        draft: plannedDraft,
+        plan,
+        caption
+      });
       setJob({
         jobId: response.jobId,
         requestId,
         stage: "queued",
-        statusMessage: "Queued and preparing the creative brief.",
+        statusMessage: voiceSampleDataUrl
+          ? "Queued and preparing the ElevenLabs voice narration."
+          : "Queued and preparing the creative brief.",
         attempts: 1,
         caption,
         createdAt: Date.now()
@@ -277,9 +489,20 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         <PlanCard label="Caption approach" value={plan.captionApproach} />
 
         <section className="summary-card">
-          <p className="summary-label">Birthday caption</p>
+          <p className="summary-label">On-video text</p>
           <p>{caption}</p>
         </section>
+
+        {voiceSampleName ? (
+          <section className="summary-card">
+            <p className="summary-label">Narration voice</p>
+            <p>
+              ElevenLabs will clone {voiceSampleName} for the voice-over, then
+              BirthdayBot will use the cloned voice to narrate the final
+              birthday caption.
+            </p>
+          </section>
+        ) : null}
 
         {statusError ? <p className="field-error">{statusError}</p> : null}
 
@@ -324,12 +547,14 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           </p>
         </section>
 
-        <video className="result-video" controls playsInline src={job.videoUrl} />
-
-        <section className="summary-card">
-          <p className="summary-label">Birthday caption</p>
-          <p>{caption}</p>
-        </section>
+        <ResultVideo
+          caption={caption}
+          videoUrl={job.videoUrl}
+          voiceOverUrl={job.voiceOverUrl}
+        />
+        {job.voiceOverError ? (
+          <p className="field-error">{job.voiceOverError}</p>
+        ) : null}
 
         <div className="action-row">
           <a className="primary-action link-action" href={job.videoUrl} download>
@@ -423,6 +648,150 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         </p>
       ) : null}
 
+      <input
+        ref={voiceFileInputRef}
+        id="voice-sample-upload"
+        name="voice-sample"
+        type="file"
+        accept="audio/*,video/mp4,video/quicktime"
+        aria-label="Voice sample"
+        onChange={onVoiceSampleChange}
+        aria-invalid={Boolean(errors.voiceSample)}
+        aria-describedby={errors.voiceSample ? "voice-sample-error" : undefined}
+      />
+      {errors.voiceSample ? (
+        <p className="field-error" id="voice-sample-error">
+          {errors.voiceSample}
+        </p>
+      ) : null}
+
+      <section className="voice-recorder" aria-label="Voice input">
+        <div className="voice-recorder-header">
+          <div>
+            <p className="summary-label">Voice input</p>
+            <h2>Record the birthday voice-over sample.</h2>
+          </div>
+          <span
+            className={
+              recordingState === "recording"
+                ? "recording-badge live"
+                : "recording-badge"
+            }
+            aria-live="polite"
+          >
+            {recordingState === "recording"
+              ? `Recording ${formatDuration(recordingSeconds)}`
+              : voiceSampleName
+                ? "Sample ready"
+                : "Optional"}
+          </span>
+        </div>
+
+        <div className="voice-script-card">
+          <p className="summary-label">Read this aloud</p>
+          <p className="voice-script">{voiceSampleScript}</p>
+        </div>
+
+        <div className="voice-recorder-actions">
+          {recordingState === "recording" ? (
+            <button
+              className="primary-action"
+              type="button"
+              onClick={stopVoiceRecording}
+            >
+              Stop recording
+            </button>
+          ) : (
+            <button
+              className="ghost-action"
+              type="button"
+              onClick={startVoiceRecording}
+              disabled={!isRecorderSupported || recordingState === "processing"}
+            >
+              {recordingState === "processing"
+                ? "Saving voice sample"
+                : voiceSampleName
+                  ? "Record again"
+                  : "Record voice sample"}
+            </button>
+          )}
+          <button
+            className="ghost-action"
+            type="button"
+            onClick={() => voiceFileInputRef.current?.click()}
+          >
+            Upload instead
+          </button>
+          <span className="upload-meta">
+            {recordingState === "recording"
+              ? "Speak naturally and leave a tiny pause between sentences."
+              : "Aim for about 60 seconds in a quiet room."}
+          </span>
+        </div>
+
+        <ul className="voice-tips" aria-label="Voice recording tips">
+          <li>Hold the mic 6-10 inches away.</li>
+          <li>Use your normal birthday-message energy.</li>
+          <li>Skip background music or TV audio.</li>
+        </ul>
+
+        {voiceSampleDataUrl ? (
+          <>
+            <section className="voice-preview" aria-label="Selected voice sample">
+              <div>
+                <p className="summary-label">
+                  {voiceSampleSource === "recorded" ? "Recorded sample" : "Uploaded sample"}
+                </p>
+                <p>{voiceSampleName}</p>
+              </div>
+              {voiceSampleDataUrl.startsWith("data:video/") ? (
+                <video controls playsInline src={voiceSampleDataUrl} />
+              ) : (
+                <audio controls src={voiceSampleDataUrl} />
+              )}
+              <button className="ghost-action" type="button" onClick={clearVoiceSample}>
+                Remove voice sample
+              </button>
+            </section>
+
+            <label className="toggle-row voice-consent">
+              <input
+                type="checkbox"
+                checked={voiceConsent}
+                onChange={(event) => {
+                  setVoiceConsent(event.target.checked);
+                  setErrors((current) => ({
+                    ...current,
+                    voiceConsent: undefined
+                  }));
+                }}
+                aria-invalid={Boolean(errors.voiceConsent)}
+                aria-describedby={
+                  errors.voiceConsent ? "voice-consent-error" : undefined
+                }
+              />
+              <span>
+                I confirm this is my voice, or I have permission to clone and
+                use it for this birthday narration.
+              </span>
+            </label>
+            {errors.voiceConsent ? (
+              <p className="field-error" id="voice-consent-error">
+                {errors.voiceConsent}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+
+        {!isRecorderSupported ? (
+          <p className="subtle-note">
+            Browser microphone recording is unavailable here, but uploading an
+            audio or video file still works.
+          </p>
+        ) : null}
+        {recordingError ? <p className="field-error">{recordingError}</p> : null}
+      </section>
+
       {isAdvanced ? (
         <section className="advanced-grid" aria-label="Advanced controls">
           <SelectField
@@ -458,7 +827,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           <SelectField
             label="Caption style"
             value={advanced.captionStyle}
-            options={["None", "Subtle", "Bold"]}
+            options={["Subtle", "Bold"]}
             onChange={(value) =>
               setAdvanced((current) => ({ ...current, captionStyle: value }))
             }
@@ -500,6 +869,83 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         Build my birthday brief
       </button>
     </form>
+  );
+}
+
+function ResultVideo({
+  caption,
+  videoUrl,
+  voiceOverUrl
+}: {
+  caption: string;
+  videoUrl: string;
+  voiceOverUrl?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function syncVoiceOver() {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (!video || !audio) {
+      return;
+    }
+
+    audio.currentTime = video.currentTime;
+  }
+
+  async function playVoiceOver() {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+
+    if (!video || !audio) {
+      return;
+    }
+
+    audio.currentTime = video.currentTime;
+    await audio.play().catch(() => undefined);
+  }
+
+  function pauseVoiceOver() {
+    audioRef.current?.pause();
+  }
+
+  function endVoiceOver() {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    audio.pause();
+    audio.currentTime = 0;
+  }
+
+  return (
+    <div className="result-video-frame">
+      <video
+        ref={videoRef}
+        className="result-video"
+        controls
+        playsInline
+        src={videoUrl}
+        onEnded={endVoiceOver}
+        onPause={pauseVoiceOver}
+        onPlay={playVoiceOver}
+        onSeeked={syncVoiceOver}
+      />
+      {voiceOverUrl ? (
+        <audio ref={audioRef} preload="auto" src={voiceOverUrl} />
+      ) : null}
+      <div
+        className="video-caption-overlay"
+        aria-label={`Happy Birthday! ${videoOverlayCaption(caption)}`}
+      >
+        <span className="video-caption-title">Happy Birthday!</span>
+        <span className="video-caption-message">{videoOverlayCaption(caption)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -598,11 +1044,66 @@ function stageHeading(stage: JobRecord["stage"]) {
   }
 }
 
-function fileToDataUrl(file: File) {
+function videoOverlayCaption(caption: string) {
+  const fallback = "Happy Birthday! Hope your day feels as special as you are.";
+  const normalized = compactCaptionText(caption || fallback);
+
+  if (normalized.length <= 220) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 217).trim()}...`;
+}
+
+function compactCaptionText(caption: string) {
+  const sentences = caption
+    .replace(/\s+/g, " ")
+    .trim()
+    .match(/[^.!?]+[.!?]?/g)
+    ?.map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  if (!sentences?.length) {
+    return "Happy Birthday! Hope your day feels as special as you are.";
+  }
+
+  return sentences.slice(0, 3).join(" ");
+}
+
+function formatDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = String(seconds % 60).padStart(2, "0");
+
+  return `${minutes}:${remainingSeconds}`;
+}
+
+function fileToDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error("File read failed."));
     reader.readAsDataURL(file);
   });
+}
+
+function preferredRecordingMimeType() {
+  const supportedTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+
+  return supportedTypes.find((type) => MediaRecorder.isTypeSupported(type));
+}
+
+function extensionForMimeType(mimeType: string) {
+  if (mimeType.includes("mp4")) {
+    return "m4a";
+  }
+
+  if (mimeType.includes("wav")) {
+    return "wav";
+  }
+
+  return "webm";
+}
+
+function stopVoiceStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
 }
