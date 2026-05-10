@@ -58,10 +58,12 @@ export function buildFalInput(
   // odds for borderline prompts.
   input.cfg_scale = options.safeRetry ? 0.5 : 0.65;
 
-  if (supportsNativeAudio(endpoint) && !hasVoiceSample(draft)) {
-    input.generate_audio = true;
-  }
-
+  // ElevenLabs always carries the voice (TTS narration, S2S Voice Changer,
+  // or sung birthday song). Asking fal for native audio just adds gibberish
+  // celebratory sound that has to be stripped during mux — and if mux fails
+  // for any reason, that gibberish leaks through to the preview/download.
+  // Keep fal silent unconditionally.
+  void supportsNativeAudio;
   return input;
 }
 
