@@ -15,8 +15,21 @@ import {
   AdvancedSettings,
   AgentPlan,
   DraftRequest,
-  JobRecord
+  JobRecord,
+  PlanRecord
 } from "@/lib/types";
+
+const sessionStorageKey = "birthdaybot:active";
+const sessionTtlMs = 24 * 60 * 60 * 1000;
+
+type PersistedSession = {
+  savedAt: number;
+  plannedDraft: DraftRequest;
+  plan: AgentPlan;
+  caption: string;
+  requestId: string;
+  job: JobRecord;
+};
 
 type FormErrors = {
   photo?: string;
@@ -121,10 +134,40 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         Boolean(navigator.mediaDevices?.getUserMedia)
     );
 
+    const session = readPersistedSession();
+    if (session) {
+      setPlannedDraft(session.plannedDraft);
+      setPlan(session.plan);
+      setCaption(session.caption);
+      setRequestId(session.requestId);
+      setJob(session.job);
+      const stage = session.job.stage;
+      if (stage === "completed" && session.job.videoUrl) {
+        setPhase("result");
+      } else if (stage === "failed") {
+        setPhase("review");
+      } else {
+        setPhase("generating");
+      }
+    }
+
     return () => {
       stopVoiceStream(voiceStreamRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!plannedDraft || !plan || !requestId || !job) return;
+    persistSession({
+      savedAt: Date.now(),
+      plannedDraft,
+      plan,
+      caption,
+      requestId,
+      job
+    });
+  }, [plannedDraft, plan, caption, requestId, job]);
 
   useEffect(() => {
     if (recordingState !== "recording") {
@@ -141,18 +184,25 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   }, [recordingState]);
 
   useEffect(() => {
-    if (phase !== "generating" || !job) {
+    if (phase !== "generating" || !job || !plannedDraft || !plan) {
       return;
     }
 
-    const currentJobId = job.jobId;
+    const polledJob = job;
+    const polledPlan: PlanRecord = {
+      requestId,
+      draft: plannedDraft,
+      plan,
+      caption,
+      createdAt: Date.now()
+    };
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    async function poll() {
+    async function poll(latest: JobRecord) {
       try {
-        const nextJob = await api.getJob(currentJobId);
+        const nextJob = await api.checkJob({ job: latest, plan: polledPlan });
 
         if (cancelled) {
           return;
@@ -172,7 +222,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
           return;
         }
 
-        timer = setTimeout(poll, 700);
+        timer = setTimeout(() => poll(nextJob), 700);
       } catch (error) {
         if (!cancelled) {
           setStatusError(
@@ -183,7 +233,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       }
     }
 
-    timer = setTimeout(poll, 700);
+    timer = setTimeout(() => poll(polledJob), 700);
 
     return () => {
       cancelled = true;
@@ -191,7 +241,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         clearTimeout(timer);
       }
     };
-  }, [api, job?.jobId, phase]);
+  }, [api, job, phase, plannedDraft, plan, caption, requestId]);
 
   async function onPhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const nextFile = event.target.files?.[0];
@@ -519,23 +569,15 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     setStatusError("");
     setIsStartingGeneration(true);
     try {
-      const response = await api.startGeneration({
+      const planRecord: PlanRecord = {
         requestId,
         draft: plannedDraft,
         plan,
-        caption
-      });
-      setJob({
-        jobId: response.jobId,
-        requestId,
-        stage: "queued",
-        statusMessage: voiceSampleDataUrl
-          ? "Queued and preparing the ElevenLabs voice narration."
-          : "Queued and preparing the creative brief.",
-        attempts: 1,
         caption,
         createdAt: Date.now()
-      });
+      };
+      const initialJob = await api.startGeneration(planRecord);
+      setJob(initialJob);
       setPhase("generating");
     } catch (error) {
       setStatusError(
@@ -565,6 +607,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   }
 
   function startFresh() {
+    clearPersistedSession();
     setMode("simple");
     setPrompt("");
     setPhotoName("");
@@ -724,7 +767,11 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
         <div className="action-row">
           <a
             className="primary-action link-action"
-            href={`/api/download/${job.jobId}`}
+            href={
+              job.videoUrl
+                ? `/api/download?url=${encodeURIComponent(job.videoUrl)}&name=birthdaybot-video-${job.jobId}.mp4`
+                : "#"
+            }
           >
             Download video
           </a>
@@ -1394,6 +1441,46 @@ function birthdayOverlayLine(name: string | undefined, caption: string) {
 function birthdayNameFromCaption(caption: string) {
   const match = caption.match(/^happy birthday(?:\s+to)?\s+([^.!?,]+)/i);
   return match?.[1]?.trim() || "";
+}
+
+function readPersistedSession(): PersistedSession | null {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem(sessionStorageKey);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedSession;
+    if (
+      typeof parsed?.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > sessionTtlMs ||
+      !parsed.plannedDraft ||
+      !parsed.plan ||
+      !parsed.job
+    ) {
+      window.localStorage.removeItem(sessionStorageKey);
+      return null;
+    }
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(sessionStorageKey);
+    return null;
+  }
+}
+
+function persistSession(session: PersistedSession) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
+  } catch (error) {
+    console.warn("[birthdaybot] persistSession failed", error);
+  }
+}
+
+function clearPersistedSession() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(sessionStorageKey);
 }
 
 function findNextMissingVoicePromptIndex(clips: Array<Blob | null>) {

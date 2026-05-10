@@ -94,19 +94,13 @@ export type JobRecord = {
   createdAt: number;
 };
 
-export type PlanResponse = {
-  requestId: string;
-  plan: AgentPlan;
-  caption: string;
-};
+export type PlanResponse = PlanRecord;
 
-export type GenerateResponse = {
-  jobId: string;
-};
+export type GenerateResponse = JobRecord;
 
-export type GenerateRequest = {
-  requestId: string;
-  draft?: DraftRequest;
-  plan?: AgentPlan;
-  caption?: string;
+export type GenerateRequest = PlanRecord;
+
+export type JobCheckRequest = {
+  job: JobRecord;
+  plan: PlanRecord;
 };

@@ -23,7 +23,7 @@ The product is built as a bounded agent workflow rather than a free-form chatbot
 - Backend: `Next.js` Route Handlers
 - Planning and caption generation: `OpenAI`
 - Video generation: `fal`
-- Local persistence for dev: file-backed store in `.tmp/birthdaybot-store`
+- Persistence: none on the server. Plan and job state live in the browser via `localStorage` and round-trip on each API call.
 
 ## Core Tools
 
@@ -105,24 +105,24 @@ npm run build
 Video downloads are handled through an app-owned proxy route:
 
 ```text
-/api/download/[jobId]
+/api/download?url=<videoUrl>&name=<filename>
 ```
 
-This avoids the browser stalling on cross-origin provider asset URLs.
+This avoids the browser stalling on cross-origin provider asset URLs. The route validates that the upstream host belongs to the fal.ai allow-list (`fal.ai`, `*.fal.media`, `*.fal.run`).
 
 ## Current Limitations
 
 - Output quality still depends on prompt tuning and model behavior on real photos
-- Local plan/job persistence is good for development, not production
 - The app is still MVP-grade and focused on a narrow birthday-only flow
+- Server-side state is intentionally absent: jobs live in the user's browser. Cross-device continuity needs auth + a real DB.
 
 ## Important Files
 
 - [components/creation-form.tsx](./components/creation-form.tsx)
 - [app/api/plan/route.ts](./app/api/plan/route.ts)
 - [app/api/generate/route.ts](./app/api/generate/route.ts)
-- [app/api/jobs/[jobId]/route.ts](./app/api/jobs/%5BjobId%5D/route.ts)
-- [app/api/download/[jobId]/route.ts](./app/api/download/%5BjobId%5D/route.ts)
+- [app/api/jobs/check/route.ts](./app/api/jobs/check/route.ts)
+- [app/api/download/route.ts](./app/api/download/route.ts)
 - [lib/plan-service.ts](./lib/plan-service.ts)
 - [lib/video-service.ts](./lib/video-service.ts)
 - [lib/tools](./lib/tools)

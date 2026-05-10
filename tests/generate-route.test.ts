@@ -1,6 +1,5 @@
 import { POST } from "@/app/api/generate/route";
-import { getJob } from "@/lib/memory-store";
-import { DraftRequest, GenerateRequest } from "@/lib/types";
+import { DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
 
 describe("/api/generate", () => {
   const originalFalKey = process.env.FAL_KEY;
@@ -9,30 +8,43 @@ describe("/api/generate", () => {
     process.env.FAL_KEY = originalFalKey;
   });
 
-  it("starts from the submitted plan payload when the in-memory plan is missing", async () => {
+  it("returns a failed JobRecord (no server-side persistence) when FAL_KEY is unset", async () => {
     process.env.FAL_KEY = "";
+
     const response = await POST(
       new Request("http://localhost/api/generate", {
         method: "POST",
-        body: JSON.stringify(makeGenerateRequest())
+        body: JSON.stringify(makePlanRecord())
       })
     );
 
     expect(response.status).toBe(200);
 
-    const body = (await response.json()) as { jobId: string };
-    const job = getJob(body.jobId);
-
+    const job = (await response.json()) as JobRecord;
     expect(job).toMatchObject({
       requestId: "req_inline_payload",
       stage: "failed",
       caption: "Happy birthday, legend.",
       error: "FAL_KEY is required to generate a personalized video."
     });
+    expect(typeof job.jobId).toBe("string");
+  });
+
+  it("rejects requests that omit required plan fields with a 400", async () => {
+    process.env.FAL_KEY = "";
+
+    const response = await POST(
+      new Request("http://localhost/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ requestId: "req_missing", caption: "" })
+      })
+    );
+
+    expect(response.status).toBe(400);
   });
 });
 
-function makeGenerateRequest(): GenerateRequest {
+function makePlanRecord(): PlanRecord {
   return {
     requestId: "req_inline_payload",
     draft: makeDraft(),
@@ -53,7 +65,8 @@ function makeGenerateRequest(): GenerateRequest {
       safePrompt: "Preserve exactly two people and animate them naturally.",
       negativePrompt: "No extra people."
     },
-    caption: "Happy birthday, legend."
+    caption: "Happy birthday, legend.",
+    createdAt: Date.now()
   };
 }
 

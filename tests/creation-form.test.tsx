@@ -5,12 +5,74 @@ import userEvent from "@testing-library/user-event";
 import { CreationForm } from "@/components/creation-form";
 import { StudioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
-import { DraftRequest, JobRecord } from "@/lib/types";
+import { DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
+
+const fallbackDraft: DraftRequest = {
+  mode: "simple",
+  prompt: "Make it cinematic.",
+  photoName: "test.png",
+  photoDataUrl: "data:image/png;base64,ZmFrZQ==",
+  advanced: defaultAdvancedSettings
+};
+
+const standardPlan: PlanRecord["plan"] = {
+  title: "Heartfelt birthday reveal",
+  concept: "Turn the uploaded photo into a rooftop birthday memory.",
+  vibe: "Warm and cinematic.",
+  sceneDirection: "Lean into city lights and closeness.",
+  motionDirection: "Soft motion with subtle reframing.",
+  captionApproach: "Personal, warm, and easy to send.",
+  generationStrategy: "Stay close to the source photo while elevating the mood.",
+  keepFromPhoto: ["Faces", "Clothing"],
+  surpriseFactor: "Add a polished birthday-movie finish.",
+  subjectCount: 2,
+  identityAnchors: ["Woman on left", "Man on right"],
+  sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
+  safePrompt: "Preserve exactly two people and animate them naturally.",
+  negativePrompt: "No extra people."
+};
+
+function mockPlanRecord(
+  draft: DraftRequest = fallbackDraft,
+  overrides: Partial<PlanRecord> = {}
+): PlanRecord {
+  return {
+    requestId: "req_123",
+    draft,
+    plan: standardPlan,
+    caption:
+      "Happy birthday to one of my favorite people. I wanted this one to feel more personal than a normal text.",
+    createdAt: Date.now(),
+    ...overrides
+  };
+}
+
+function mockJobRecord(overrides: Partial<JobRecord> = {}): JobRecord {
+  return {
+    jobId: "job_123",
+    requestId: "req_123",
+    stage: "queued",
+    statusMessage: "Queued and preparing the creative brief.",
+    attempts: 1,
+    caption: "Happy birthday to one of my favorite people.",
+    createdAt: Date.now(),
+    ...overrides
+  };
+}
 
 const originalMediaDevices = navigator.mediaDevices;
 
 describe("CreationForm", () => {
+  beforeEach(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.clear();
+    }
+  });
+
   afterEach(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.clear();
+    }
     vi.unstubAllGlobals();
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -57,27 +119,9 @@ describe("CreationForm", () => {
 
   it("creates a plan and renders the review screen", async () => {
     const user = userEvent.setup();
-    const createPlan = vi.fn<StudioApi["createPlan"]>().mockResolvedValue({
-      requestId: "req_123",
-      plan: {
-        title: "Heartfelt birthday reveal",
-        concept: "Turn the uploaded photo into a rooftop birthday memory.",
-        vibe: "Warm and cinematic.",
-        sceneDirection: "Lean into city lights and closeness.",
-        motionDirection: "Soft motion with subtle reframing.",
-        captionApproach: "Personal, warm, and easy to send.",
-        generationStrategy: "Stay close to the source photo while elevating the mood.",
-        keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish.",
-        subjectCount: 2,
-        identityAnchors: ["Woman on left", "Man on right"],
-        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
-        safePrompt: "Preserve exactly two people and animate them naturally.",
-        negativePrompt: "No extra people."
-      },
-      caption:
-        "Happy birthday to one of my favorite people. I wanted this one to feel more personal than a normal text."
-    });
+    const createPlan = vi.fn<StudioApi["createPlan"]>(async (input) =>
+      mockPlanRecord(input)
+    );
 
     render(
       <CreationForm
@@ -100,26 +144,16 @@ describe("CreationForm", () => {
 
   it("sends one optional voice sample with the draft", async () => {
     const user = userEvent.setup();
-    const createPlan = vi.fn<StudioApi["createPlan"]>(async (input) => ({
-      requestId: "req_123",
-      plan: {
-        title: "Voice-over birthday reveal",
-        concept: `Turn the uploaded photo into a narrated birthday beat centered on ${input.prompt}.`,
-        vibe: "Warm and cinematic.",
-        sceneDirection: "Lean into city lights and closeness.",
-        motionDirection: "Soft motion with subtle reframing.",
-        captionApproach: "Personal, warm, and easy to send.",
-        generationStrategy: "Stay close to the source photo while elevating the mood.",
-        keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish.",
-        subjectCount: 2,
-        identityAnchors: ["Woman on left", "Man on right"],
-        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
-        safePrompt: "Preserve exactly two people and animate them naturally.",
-        negativePrompt: "No extra people."
-      },
-      caption: "Happy birthday from me to you."
-    }));
+    const createPlan = vi.fn<StudioApi["createPlan"]>(async (input) =>
+      mockPlanRecord(input, {
+        plan: {
+          ...standardPlan,
+          title: "Voice-over birthday reveal",
+          concept: `Turn the uploaded photo into a narrated birthday beat centered on ${input.prompt}.`
+        },
+        caption: "Happy birthday from me to you."
+      })
+    );
 
     render(
       <CreationForm
@@ -176,26 +210,16 @@ describe("CreationForm", () => {
 
   it("records a voice sample from the microphone", async () => {
     const user = userEvent.setup();
-    const createPlan = vi.fn<StudioApi["createPlan"]>(async (input) => ({
-      requestId: "req_123",
-      plan: {
-        title: "Recorded voice-over birthday reveal",
-        concept: `Turn the uploaded photo into a narrated birthday beat centered on ${input.prompt}.`,
-        vibe: "Warm and cinematic.",
-        sceneDirection: "Lean into city lights and closeness.",
-        motionDirection: "Soft motion with subtle reframing.",
-        captionApproach: "Personal, warm, and easy to send.",
-        generationStrategy: "Stay close to the source photo while elevating the mood.",
-        keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish.",
-        subjectCount: 2,
-        identityAnchors: ["Woman on left", "Man on right"],
-        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
-        safePrompt: "Preserve exactly two people and animate them naturally.",
-        negativePrompt: "No extra people."
-      },
-      caption: "Happy birthday from me to you."
-    }));
+    const createPlan = vi.fn<StudioApi["createPlan"]>(async (input) =>
+      mockPlanRecord(input, {
+        plan: {
+          ...standardPlan,
+          title: "Recorded voice-over birthday reveal",
+          concept: `Turn the uploaded photo into a narrated birthday beat centered on ${input.prompt}.`
+        },
+        caption: "Happy birthday from me to you."
+      })
+    );
     const stopTrack = vi.fn();
 
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
@@ -336,37 +360,37 @@ describe("CreationForm", () => {
 
   it("runs through generation progress and shows the result screen", async () => {
     const user = userEvent.setup();
-    const startGeneration = vi.fn<StudioApi["startGeneration"]>(async () => ({
-      jobId: "job_123"
-    }));
-    const getJob = vi
-      .fn<StudioApi["getJob"]>()
-      .mockResolvedValueOnce({
-        jobId: "job_123",
-        requestId: "req_123",
+    const startGeneration = vi.fn<StudioApi["startGeneration"]>(async () =>
+      mockJobRecord({
         stage: "generating",
         statusMessage: "Generating the cinematic birthday video.",
-        attempts: 1,
-        caption: "Caption one. Caption two. Caption three. Caption four.",
-        createdAt: Date.now()
-      } satisfies JobRecord)
-      .mockResolvedValueOnce({
-        jobId: "job_123",
-        requestId: "req_123",
-        stage: "completed",
-        statusMessage: "Birthday package ready.",
-        attempts: 1,
-        caption: "Caption one. Caption two. Caption three. Caption four.",
-        createdAt: Date.now(),
-        videoUrl: "https://example.com/video.mp4",
-        voiceOverUrl: "data:audio/mpeg;base64,AQID"
-      } satisfies JobRecord);
+        caption: "Caption one. Caption two. Caption three. Caption four."
+      })
+    );
+    const checkJob = vi
+      .fn<StudioApi["checkJob"]>()
+      .mockResolvedValueOnce(
+        mockJobRecord({
+          stage: "generating",
+          statusMessage: "Generating the cinematic birthday video.",
+          caption: "Caption one. Caption two. Caption three. Caption four."
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJobRecord({
+          stage: "completed",
+          statusMessage: "Birthday package ready.",
+          caption: "Caption one. Caption two. Caption three. Caption four.",
+          videoUrl: "https://example.com/video.mp4",
+          voiceOverUrl: "data:audio/mpeg;base64,AQID"
+        })
+      );
 
     const { container } = render(
       <CreationForm
         api={makeApi({
           startGeneration,
-          getJob
+          checkJob
         })}
       />
     );
@@ -407,7 +431,7 @@ describe("CreationForm", () => {
     expect(screen.queryByText("Birthday caption")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download video" })).toHaveAttribute(
       "href",
-      "/api/download/job_123"
+      `/api/download?url=${encodeURIComponent("https://example.com/video.mp4")}&name=birthdaybot-video-job_123.mp4`
     );
     expect(container.querySelector("audio")).toHaveAttribute(
       "src",
@@ -534,40 +558,30 @@ async function fillValidDraft(user: ReturnType<typeof userEvent.setup>) {
 
 function makeApi(overrides: Partial<StudioApi> = {}): StudioApi {
   return {
-    createPlan: vi.fn(async (input: DraftRequest) => ({
-      requestId: "req_123",
-      plan: {
-        title: "Heartfelt birthday reveal",
-        concept: `Turn the uploaded photo into a cinematic birthday beat centered on ${input.prompt}.`,
-        vibe: "Warm and cinematic.",
-        sceneDirection: "Lean into city lights and closeness.",
-        motionDirection: "Soft motion with subtle reframing.",
-        captionApproach: "Personal, warm, and easy to send.",
-        generationStrategy: "Stay close to the source photo while elevating the mood.",
-        keepFromPhoto: ["Faces", "Clothing"],
-        surpriseFactor: "Add a polished birthday-movie finish.",
-        subjectCount: 2,
-        identityAnchors: ["Woman on left", "Man on right"],
-        sceneGuardrails: ["Preserve exactly two people", "No identity drift"],
-        safePrompt: "Preserve exactly two people and animate them naturally.",
-        negativePrompt: "No extra people."
-      },
-      caption:
-        "Happy birthday to one of my favorite people. I wanted this one to feel more personal than a normal text."
-    })),
-    startGeneration: vi.fn(async () => ({
-      jobId: "job_123"
-    })),
-    getJob: vi.fn(async () => ({
-      jobId: "job_123",
-      requestId: "req_123",
-      stage: "completed",
-      statusMessage: "Birthday package ready.",
-      attempts: 1,
-      caption: "Caption one",
-      createdAt: Date.now(),
-      videoUrl: "https://example.com/video.mp4"
-    }) satisfies JobRecord),
+    createPlan: vi.fn(async (input: DraftRequest) =>
+      mockPlanRecord(input, {
+        plan: {
+          ...standardPlan,
+          concept: `Turn the uploaded photo into a cinematic birthday beat centered on ${input.prompt}.`
+        }
+      })
+    ),
+    startGeneration: vi.fn(async () =>
+      mockJobRecord({
+        stage: "completed",
+        statusMessage: "Birthday package ready.",
+        caption: "Caption one",
+        videoUrl: "https://example.com/video.mp4"
+      })
+    ),
+    checkJob: vi.fn(async () =>
+      mockJobRecord({
+        stage: "completed",
+        statusMessage: "Birthday package ready.",
+        caption: "Caption one",
+        videoUrl: "https://example.com/video.mp4"
+      })
+    ),
     ...overrides
   };
 }

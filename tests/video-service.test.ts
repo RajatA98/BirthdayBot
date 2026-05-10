@@ -16,6 +16,14 @@ vi.mock("@fal-ai/client", () => ({
   }
 }));
 
+vi.mock("@/lib/tools/generate-music-bed", () => ({
+  generateAiMusicBed: vi.fn(async () => undefined)
+}));
+
+vi.mock("@/lib/langfuse", () => ({
+  getLangfuse: vi.fn(() => null)
+}));
+
 import {
   buildFalInput,
   buildFalPrompt,

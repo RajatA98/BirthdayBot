@@ -1,6 +1,5 @@
 import { generatePlanAndCaption } from "../lib/plan-service";
 import { resolveJobStatus, startVideoGeneration } from "../lib/video-service";
-import { savePlan, saveJob } from "../lib/memory-store";
 import { DraftRequest, JobRecord, PlanRecord } from "../lib/types";
 
 async function main() {
@@ -47,8 +46,6 @@ async function main() {
     caption: planned.caption,
     createdAt: Date.now()
   };
-  savePlan(planRecord);
-
   const job: JobRecord = {
     jobId: "smoke_job",
     requestId: planRecord.requestId,
@@ -58,7 +55,6 @@ async function main() {
     caption: planRecord.caption,
     createdAt: Date.now()
   };
-  saveJob(job);
 
   console.log("2. Starting video generation...");
   const providerJob = await startVideoGeneration(planRecord, job);
