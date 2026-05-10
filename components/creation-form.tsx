@@ -20,7 +20,9 @@ import {
 } from "@/lib/types";
 
 const sessionStorageKey = "birthdaybot:active";
+const voiceDraftStorageKey = "birthdaybot:voice-draft";
 const sessionTtlMs = 24 * 60 * 60 * 1000;
+const voiceDraftTtlMs = 7 * 24 * 60 * 60 * 1000;
 
 type PersistedSession = {
   savedAt: number;
@@ -29,6 +31,14 @@ type PersistedSession = {
   caption: string;
   requestId: string;
   job: JobRecord;
+};
+
+type PersistedVoiceDraft = {
+  savedAt: number;
+  voiceSampleName: string;
+  voiceSampleDataUrl: string;
+  voiceSampleClips: string[];
+  voiceSampleSource: "" | "recorded" | "uploaded";
 };
 
 type FormErrors = {
@@ -149,6 +159,25 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       } else {
         setPhase("generating");
       }
+    } else {
+      const voiceDraft = readVoiceDraft();
+      if (voiceDraft) {
+        setVoiceSampleName(voiceDraft.voiceSampleName);
+        setVoiceSampleDataUrl(voiceDraft.voiceSampleDataUrl);
+        setVoiceSampleClipsData(voiceDraft.voiceSampleClips);
+        setVoiceSampleSource(voiceDraft.voiceSampleSource);
+        // Reconstruct guided clip Blob slots so the stepper shows
+        // complete state. Consent is intentionally NOT persisted —
+        // the user re-confirms each session.
+        const restoredClips = voiceDraft.voiceSampleClips
+          .slice(0, voiceSamplePrompts.length)
+          .map((dataUrl) =>
+            dataUrlStringToBlob(dataUrl, voiceDraft.voiceSampleName || "take.webm")
+          );
+        const padded: Array<Blob | null> = [...restoredClips];
+        while (padded.length < voiceSamplePrompts.length) padded.push(null);
+        setGuidedVoiceClips(padded);
+      }
     }
 
     return () => {
@@ -156,6 +185,24 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!voiceSampleDataUrl) {
+      return;
+    }
+    persistVoiceDraft({
+      savedAt: Date.now(),
+      voiceSampleName,
+      voiceSampleDataUrl,
+      voiceSampleClips: voiceSampleClipsData,
+      voiceSampleSource
+    });
+  }, [
+    voiceSampleDataUrl,
+    voiceSampleName,
+    voiceSampleClipsData,
+    voiceSampleSource
+  ]);
 
   useEffect(() => {
     if (!plannedDraft || !plan || !requestId || !job) return;
@@ -465,6 +512,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
   }
 
   function clearVoiceSample() {
+    clearVoiceDraft();
     setVoiceSampleName("");
     setVoiceSampleDataUrl("");
     setVoiceSampleClipsData([]);
@@ -626,6 +674,7 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
   function startFresh() {
     clearPersistedSession();
+    clearVoiceDraft();
     setMode("simple");
     setPrompt("");
     setPhotoName("");
@@ -1486,6 +1535,44 @@ function dataUrlStringToBlob(dataUrl: string, name: string): File {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return new File([bytes], name || "upload.bin", { type: mime });
+}
+
+function readVoiceDraft(): PersistedVoiceDraft | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(voiceDraftStorageKey);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PersistedVoiceDraft;
+    if (
+      typeof parsed?.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > voiceDraftTtlMs ||
+      !parsed.voiceSampleDataUrl
+    ) {
+      window.localStorage.removeItem(voiceDraftStorageKey);
+      return null;
+    }
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(voiceDraftStorageKey);
+    return null;
+  }
+}
+
+function persistVoiceDraft(draft: PersistedVoiceDraft) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(voiceDraftStorageKey, JSON.stringify(draft));
+  } catch (error) {
+    console.warn(
+      "[birthdaybot] persistVoiceDraft failed (storage quota?)",
+      error
+    );
+  }
+}
+
+function clearVoiceDraft() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(voiceDraftStorageKey);
 }
 
 function readPersistedSession(): PersistedSession | null {
