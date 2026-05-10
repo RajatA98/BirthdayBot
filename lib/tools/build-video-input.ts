@@ -45,10 +45,11 @@ export function buildFalInput(
   // as plain as possible. Drop the plan-extension flourishes that may
   // have triggered fal's content moderation on attempt 1.
   input.negative_prompt = options.safeRetry
-    ? "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity"
+    ? "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity, different people, replacement actors, stock-footage people, new characters, subject swap"
     : [
         "any on-screen text, captions, subtitles, lower thirds, title cards, words, letters, signage with words, written messages, name tags, watermark, logo",
         "blur, distort, low quality, distorted hands, extra faces, changed identity",
+        "different people from the source photo, replacement actors, body double, stock-footage people, generic athletes, generic models, new characters appearing mid-shot, subject swap during transition, scene cut to unrelated people",
         plan.negativePrompt
       ]
         .filter(Boolean)
@@ -117,8 +118,9 @@ export function buildFalPrompt(
 
   const joined = [
     "Create a short cinematic birthday celebration video from the uploaded photo.",
+    "IDENTITY LOCK: The on-screen subjects must be the exact same people from the uploaded source photo throughout the entire video — every shot, every transition, every action moment, every wide angle. Do NOT cut away to other people, do NOT replace the subjects with stock-looking actors or models, and do NOT introduce new characters during transitions or motion. If the camera pulls back, the people in the wider frame are still the source-photo subjects, not generic stand-ins. Preserve their faces, skin tone, hair, body type, clothing cues, and the relationship shown in the source photo across the whole clip.",
     `User video prompt: ${draft.prompt}`,
-    "Treat the user video prompt as the main creative direction for the generated video.",
+    "Treat the user video prompt as the main creative direction for the generated video, but never at the expense of the IDENTITY LOCK above.",
     textDirection,
     musicDirection,
     audioDelivery,
