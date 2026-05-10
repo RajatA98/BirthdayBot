@@ -16,10 +16,9 @@ describe("birthday email template", () => {
 
     expect(html).toContain("<video controls playsinline preload=\"metadata\"");
     expect(html).toContain("src=\"https://cdn.example.com/birthday-video.mp4?name=&quot;maya&quot;&amp;autoplay=0\"");
-    expect(html).toContain("Play the birthday video");
+    expect(html).toContain("Download the birthday video");
     expect(html).toContain("@keyframes bb-float");
     expect(html).toContain("@keyframes bb-pop");
-    expect(html).not.toMatch(/download/i);
   });
 
   it("escapes message, caption, name, and video attributes", () => {
@@ -40,11 +39,10 @@ describe("birthday email template", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
   });
 
-  it("keeps the plain text email focused on watching instead of downloading", () => {
+  it("includes a download fallback link in the plain-text email", () => {
     const text = buildBirthdayEmailText(birthdayEmail, "Maya");
 
     expect(text).toContain("Your birthday video is included in the email.");
-    expect(text).toContain("open it here: https://cdn.example.com/birthday-video.mp4");
-    expect(text).not.toMatch(/download/i);
+    expect(text).toContain("download it here: https://cdn.example.com/birthday-video.mp4");
   });
 });
