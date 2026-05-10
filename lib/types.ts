@@ -1,5 +1,9 @@
 export type Mode = "simple" | "advanced";
 
+// HolidayBot — extensible occasion identifier. Defaults to "birthday" so the
+// existing pipeline keeps behaving exactly as before when the field is absent.
+export type Occasion = "birthday" | "mothers-day";
+
 export type AdvancedSettings = {
   tone: string;
   sceneIdea: string;
@@ -23,6 +27,12 @@ export type SongStyle =
 
 export type DraftRequest = {
   mode: Mode;
+  // HolidayBot routing field. Absent / "birthday" preserves legacy behavior;
+  // "mothers-day" swaps captions, voice-over copy, prompt seasoning, and
+  // overlay title without forking the pipeline.
+  occasion?: Occasion;
+  // Legacy field name kept for backward compat with the BirthdayBot UI;
+  // for non-birthday occasions this carries the recipient's name (e.g. mom).
   birthdayName?: string;
   prompt: string;
   photoName: string;

@@ -1,3 +1,4 @@
+import { getOccasionConfig, occasionFromDraft } from "@/lib/occasions";
 import { DraftRequest, PlanRecord } from "@/lib/types";
 
 // Live cap fal/kling enforces is 2500 chars; older v3 builds capped at 512.
@@ -44,12 +45,19 @@ export function buildFalInput(
   // Safe retry: keep the negative prompt minimal so the input payload is
   // as plain as possible. Drop the plan-extension flourishes that may
   // have triggered fal's content moderation on attempt 1.
+  const occasion = getOccasionConfig(occasionFromDraft(draft));
   input.negative_prompt = options.safeRetry
-    ? "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity, different people, replacement actors, stock-footage people, new characters, subject swap"
+    ? [
+        "any on-screen text, captions, subtitles, watermark, logo, distorted hands, extra faces, changed identity, different people, replacement actors, stock-footage people, new characters, subject swap",
+        occasion.negativePromptExtras
+      ]
+        .filter(Boolean)
+        .join(", ")
     : [
         "any on-screen text, captions, subtitles, lower thirds, title cards, words, letters, signage with words, written messages, name tags, watermark, logo",
         "blur, distort, low quality, distorted hands, extra faces, changed identity",
         "different people from the source photo, replacement actors, body double, stock-footage people, generic athletes, generic models, new characters appearing mid-shot, subject swap during transition, scene cut to unrelated people",
+        occasion.negativePromptExtras,
         plan.negativePrompt
       ]
         .filter(Boolean)
@@ -83,13 +91,22 @@ export function buildFalPrompt(
       ? `Scene guardrails: ${plan.sceneGuardrails.join("; ")}.`
       : undefined;
 
+  const occasion = getOccasionConfig(occasionFromDraft(draft));
+  const isMothersDay = occasion.id === "mothers-day";
+  // Per-occasion celebration line — for birthdays it's party tropes (cake,
+  // balloons, confetti); for Mother's Day it's tender tropes (warm light,
+  // small gestures). Keeps the visual feel matched to the occasion.
+  const celebrationLine = isMothersDay
+    ? "Make the video feel like a tender Mother's Day moment with intimate, sendable details — warm sunlight, a small touch of nostalgia, a hug or shared look or quiet smile when it fits the scene. Avoid generic birthday-party tropes (no cake, no candles, no balloons, no confetti) unless the user prompt explicitly asks for them."
+    : "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene.";
+
   // Safe retry: drop the verbose user-direction layer entirely and ride on
   // the plan's internal `safePrompt` plus identity guardrails. The first
   // attempt's prompt was rejected by fal — try a tighter, more neutral
   // payload before giving up.
   if (options.safeRetry) {
     const joined = [
-      "Create a short cinematic birthday celebration video from the uploaded photo.",
+      occasion.sceneOpeningLine,
       safePrompt,
       "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
       guardrails,
@@ -112,21 +129,23 @@ export function buildFalPrompt(
           `Music vibe: ${draft.advanced.musicVibe}`,
           `Motion intensity: ${draft.advanced.motionIntensity}`
         ].join(". ")
-      : "Use a warm, sendable birthday-video style.";
+      : isMothersDay
+        ? "Use a warm, sendable Mother's-Day-tribute style."
+        : "Use a warm, sendable birthday-video style.";
   const isSpeakYourself = draft.voiceMode === "speak-yourself";
   const audioDelivery = isSpeakYourself
-    ? "The voice-over is the user's OWN spoken birthday message (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it."
+    ? `The voice-over is the user's OWN spoken ${isMothersDay ? "Mother's Day message" : "birthday message"} (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it.`
     : undefined;
 
   const joined = [
-    "Create a short cinematic birthday celebration video from the uploaded photo.",
+    occasion.sceneOpeningLine,
     "IDENTITY LOCK: The on-screen subjects must be the exact same people from the uploaded source photo throughout the entire video — every shot, every transition, every action moment, every wide angle. Do NOT cut away to other people, do NOT replace the subjects with stock-looking actors or models, and do NOT introduce new characters during transitions or motion. If the camera pulls back, the people in the wider frame are still the source-photo subjects, not generic stand-ins. Preserve their faces, skin tone, hair, body type, clothing cues, and the relationship shown in the source photo across the whole clip.",
     `User video prompt: ${draft.prompt}`,
     "Treat the user video prompt as the main creative direction for the generated video, but never at the expense of the IDENTITY LOCK above.",
     textDirection,
     musicDirection,
     audioDelivery,
-    "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene.",
+    celebrationLine,
     "Keep the people recognizable and preserve identity, facial features, clothing cues, and the relationship shown in the source photo.",
     `Concept: ${plan.concept}`,
     `Scene direction: ${plan.sceneDirection}`,

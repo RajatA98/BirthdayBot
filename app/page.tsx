@@ -4,6 +4,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 
 import { studioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
+import { holidayRail } from "@/lib/occasions";
 import { AgentPlan, DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
 
 type ColorName = "pink" | "yellow" | "lime" | "lavender" | "coral";
@@ -336,6 +337,8 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
           </div>
         </section>
 
+        <HolidayRail />
+
         <section className="bb-section">
           <SectionHead label="Recently sent" count={recentlySent.length} />
           <div className="bb-sent-row">
@@ -353,6 +356,51 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
         </section>
       </div>
     </div>
+  );
+}
+
+function HolidayRail() {
+  return (
+    <section className="bb-section bb-holiday-rail">
+      <header className="bb-section-head">
+        <h2>Try our other cards</h2>
+        <span>* HolidayBot</span>
+      </header>
+      <p className="bb-holiday-rail-hint">
+        Same engine, different occasion. Mother&apos;s Day is live — the rest are coming soon.
+      </p>
+      <div className="bb-holiday-grid">
+        {holidayRail.map((entry) => {
+          const isLive = entry.status === "live";
+          const className = `bb-holiday-card swatch-${entry.swatch} ${isLive ? "is-live" : "is-soon"}`;
+          if (isLive && entry.href) {
+            return (
+              <a key={entry.id} className={className} href={entry.href}>
+                <span className="bb-holiday-emoji" aria-hidden>
+                  {entry.emoji}
+                </span>
+                <strong>{entry.label}</strong>
+                <small>Open the studio</small>
+              </a>
+            );
+          }
+          return (
+            <div
+              key={entry.id}
+              className={className}
+              role="presentation"
+              aria-disabled
+            >
+              <span className="bb-holiday-emoji" aria-hidden>
+                {entry.emoji}
+              </span>
+              <strong>{entry.label}</strong>
+              <small>Coming soon</small>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

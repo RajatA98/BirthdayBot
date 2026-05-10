@@ -52,7 +52,9 @@ describe("planBirthdayVideo prompt caching", () => {
 
     expect(responsesCreate).toHaveBeenCalledTimes(1);
     const call = responsesCreate.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(call.prompt_cache_key).toBe("birthdaybot-plan-v1");
+    // HolidayBot: cache key now includes the occasion suffix so birthday and
+    // mothers-day prompts get separate warm caches instead of fighting.
+    expect(call.prompt_cache_key).toBe("birthdaybot-plan-v1-birthday");
   });
 
   it("sends a system message large enough to qualify for OpenAI prompt caching", async () => {

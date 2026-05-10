@@ -798,6 +798,253 @@ svg {
   gap: 16px;
 }
 
+/* HolidayBot Mother's Day studio (app/mothers-day/page.tsx) */
+.md-shell {
+  flex-direction: column;
+  padding: 24px clamp(16px, 4vw, 48px) 64px;
+  gap: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.md-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.md-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--bb-ink-lite);
+}
+.md-status-pill {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bb-yellow, #ffe680);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.md-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.md-hero h1 {
+  margin: 6px 0 8px;
+  font-family: var(--bb-display);
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.1;
+}
+.md-hero p {
+  max-width: 60ch;
+  color: var(--bb-ink-lite);
+  font-size: 15px;
+}
+.md-stepper {
+  display: flex;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex-wrap: wrap;
+}
+.md-stepper li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  opacity: 0.6;
+}
+.md-stepper li.is-active,
+.md-stepper li.is-done {
+  opacity: 1;
+}
+.md-stepper li.is-active {
+  background: var(--bb-lavender, #e6e0ff);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+.md-stepper li span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  font-weight: 700;
+}
+.md-panel {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 22px;
+  padding: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.md-panel h2 {
+  margin: 0 0 6px;
+  font-family: var(--bb-display);
+  font-size: 24px;
+}
+.md-panel > p {
+  color: var(--bb-ink-lite);
+  margin: 0 0 20px;
+  max-width: 60ch;
+}
+.md-photo-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .md-photo-row {
+    grid-template-columns: 1fr;
+  }
+}
+.md-dropzone img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 18px;
+}
+.md-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.md-tip {
+  font-size: 13px;
+  color: var(--bb-ink-lite);
+  margin: 6px 0 0;
+}
+.md-step-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 22px;
+  gap: 12px;
+}
+.md-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.md-chip {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.md-chip:hover {
+  background: var(--bb-lavender, #e6e0ff);
+  transform: translateY(-1px);
+}
+.md-voice-block {
+  margin-top: 18px;
+}
+.md-brief-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 880px) {
+  .md-brief-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.md-brief-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.md-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.md-preview-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 18px;
+}
+.md-overlay {
+  position: absolute;
+  inset: auto 12px 14px 12px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 12px;
+  text-align: center;
+  font-family: var(--bb-display);
+  font-size: 18px;
+  pointer-events: none;
+}
+
+/* HolidayBot rail — sibling occasions surfaced on the dashboard */
+.bb-holiday-rail-hint {
+  margin: -6px 0 14px;
+  color: var(--bb-ink-lite);
+  font-size: 13px;
+}
+.bb-holiday-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.bb-holiday-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 16px 16px;
+  border-radius: 18px;
+  text-decoration: none;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.bb-holiday-card.is-live {
+  cursor: pointer;
+}
+.bb-holiday-card.is-live:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -16px rgba(0, 0, 0, 0.25);
+}
+.bb-holiday-card.is-soon {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: saturate(0.7);
+}
+.bb-holiday-card strong {
+  font-family: var(--bb-display);
+  font-size: 17px;
+  line-height: 1.15;
+}
+.bb-holiday-card small {
+  color: var(--bb-ink-lite);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bb-holiday-emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
 .bb-featured-card {
   overflow: hidden;
   border: 1px solid var(--bb-border);

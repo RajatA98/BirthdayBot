@@ -1,4 +1,5 @@
 import { traceTool } from "@/lib/langfuse";
+import { getOccasionConfig, occasionFromDraft } from "@/lib/occasions";
 import { DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { getServerEnv } from "@/lib/server-env";
 
@@ -69,7 +70,7 @@ async function createVoiceOverInner(
   }
 
   const draft = planRecord.draft;
-  const text = birthdayVoiceOverText(planRecord.caption);
+  const text = birthdayVoiceOverText(planRecord.caption, draft);
   const hasSample = Boolean(draft.voiceSampleDataUrl || draft.voiceSampleClips?.length);
   const hasConsent = Boolean(draft.voiceConsent);
   const isSpeakYourself =
@@ -538,9 +539,13 @@ export function addAudioTag(text: string, cue?: string): string {
   return text;
 }
 
-function birthdayVoiceOverText(caption: string) {
-  const fallback = "Happy birthday. I hope today makes you feel celebrated and loved.";
-  const cleaned = cleanNarrationScript(caption || fallback);
+function birthdayVoiceOverText(caption: string, draft: DraftRequest) {
+  const occasion = getOccasionConfig(occasionFromDraft(draft));
+  const fallback =
+    occasion.id === "mothers-day"
+      ? "Happy Mother's Day. Thank you for everything — today and every day."
+      : "Happy birthday. I hope today makes you feel celebrated and loved.";
+  const cleaned = cleanNarrationScript(caption || fallback, occasion);
   const limited = limitVoiceOverWords(cleaned);
 
   if (limited.length <= 260) {
@@ -550,7 +555,10 @@ function birthdayVoiceOverText(caption: string) {
   return limited.slice(0, 257).trim();
 }
 
-function cleanNarrationScript(script: string) {
+function cleanNarrationScript(
+  script: string,
+  occasion: ReturnType<typeof getOccasionConfig>
+) {
   const cleaned = script
     .replace(/\s+/g, " ")
     .replaceAll('"', "'")
@@ -558,13 +566,25 @@ function cleanNarrationScript(script: string) {
     .replace(/^\s*(?:um+|uh+|ah+|erm+|hmm+|okay|ok|testing|test|one two(?: three)?)[,.\s-]+/i, "")
     .replace(/\.+$/g, ".")
     .trim();
-  const birthdayStart = cleaned.search(/\bhappy birthday\b/i);
 
-  if (birthdayStart > 0 && birthdayStart <= 90) {
-    return cleaned.slice(birthdayStart).trim();
+  // Trim filler before the actual greeting. For Mother's Day, find "happy
+  // mother's day" (case-insensitive, with optional apostrophe). Falls back
+  // to "happy birthday" for the default occasion.
+  const greetingPattern =
+    occasion.id === "mothers-day"
+      ? /\bhappy\s+mother(?:'|’)?s?\s+day\b/i
+      : /\bhappy birthday\b/i;
+  const greetingStart = cleaned.search(greetingPattern);
+
+  if (greetingStart > 0 && greetingStart <= 90) {
+    return cleaned.slice(greetingStart).trim();
   }
 
-  return cleaned || "Happy birthday. I hope today makes you feel celebrated and loved.";
+  if (cleaned) return cleaned;
+
+  return occasion.id === "mothers-day"
+    ? "Happy Mother's Day. Thank you for everything — today and every day."
+    : "Happy birthday. I hope today makes you feel celebrated and loved.";
 }
 
 function limitVoiceOverWords(text: string) {

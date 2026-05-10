@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import { traceTool } from "@/lib/langfuse";
+import { getOccasionConfig, occasionFromDraft } from "@/lib/occasions";
 import { DraftRequest, AgentPlan, PhotoAnalysis } from "@/lib/types";
 import { buildMockCaption, buildMockPlan } from "@/lib/agent-plan";
 
@@ -175,6 +176,7 @@ export async function planBirthdayVideo(
   analysis: PhotoAnalysis
 ) {
   const apiKey = process.env.OPENAI_API_KEY;
+  const occasionConfig = getOccasionConfig(occasionFromDraft(input));
 
   if (!apiKey) {
     const plan = buildMockPlan(input, analysis);
@@ -188,30 +190,43 @@ export async function planBirthdayVideo(
   const client = new OpenAI({ apiKey });
   const model = process.env.OPENAI_PLAN_MODEL || "gpt-4.1-mini";
   const userContext = [
+    `Occasion: ${occasionConfig.label}`,
     `Mode: ${input.mode}`,
-    `Birthday name: ${input.birthdayName?.trim() || "Not provided"}`,
+    `${occasionConfig.id === "birthday" ? "Birthday name" : "Recipient name"}: ${input.birthdayName?.trim() || "Not provided"}`,
     `User prompt: ${input.prompt}`,
     `Advanced settings: ${JSON.stringify(input.advanced)}`,
     `Photo analysis: ${JSON.stringify(analysis)}`
   ].join("\n");
 
+  // Occasion override goes in a SECOND system message so the long static
+  // birthday-themed instructions above stay cacheable. The Responses API
+  // honors later-message guidance over earlier when there's conflict.
+  const occasionOverride = buildOccasionOverride(occasionConfig);
+
   return traceTool(
     "plan-and-caption",
     async () => {
       try {
+        const inputMessages: Array<{ role: "system" | "user"; content: string }> = [
+          { role: "system", content: systemInstructions }
+        ];
+        if (occasionOverride) {
+          inputMessages.push({ role: "system", content: occasionOverride });
+        }
+        inputMessages.push({ role: "user", content: userContext });
+
         const response = await client.responses.create({
           model,
-          input: [
-            { role: "system", content: systemInstructions },
-            { role: "user", content: userContext }
-          ],
+          input: inputMessages,
           text: {
             format: {
               type: "json_schema",
               ...combinedSchema
             }
           },
-          ...({ prompt_cache_key: "birthdaybot-plan-v1" } as object)
+          // Cache key includes occasion so each occasion gets its own warm
+          // cache rather than fighting for the same slot.
+          ...({ prompt_cache_key: `birthdaybot-plan-v1-${occasionConfig.id}` } as object)
         });
 
         const parsed = JSON.parse(response.output_text) as {
@@ -249,6 +264,25 @@ export async function planBirthdayVideo(
       extractOutput: (result) => ({ plan: result.plan, caption: result.caption })
     }
   ).then(({ plan, caption, source }) => ({ plan, caption, source }));
+}
+
+function buildOccasionOverride(
+  config: ReturnType<typeof getOccasionConfig>
+): string | undefined {
+  if (config.id === "birthday") return undefined;
+  return [
+    `OCCASION OVERRIDE — ${config.label.toUpperCase()}`,
+    "The static instructions above are written for a birthday video. For THIS request, treat the occasion as a Mother's Day video and apply these overrides on top of the static rules:",
+    "",
+    "PLAN OVERRIDES",
+    config.planSeasoning,
+    "",
+    "CAPTION OVERRIDES",
+    config.captionSeasoning,
+    `Replace any 'Happy birthday' phrasing with '${config.greeting}' (or a warm equivalent appropriate to the relationship).`,
+    "Do NOT include the word 'birthday' anywhere in the caption.",
+    "Identity guardrails (subjectCount, identityAnchors, sceneGuardrails, the Constraints section in safePrompt) still apply unchanged."
+  ].join("\n");
 }
 
 function shouldFallbackToMockOpenAI(error: unknown) {
