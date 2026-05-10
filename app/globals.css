@@ -1110,9 +1110,9 @@ svg {
   border-bottom: 1px solid var(--bb-border);
   background: var(--bb-paper);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  padding: 18px 32px 20px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 18px 24px 20px;
 }
 
 .bb-stepper button {
@@ -1121,13 +1121,22 @@ svg {
   border-radius: 12px;
   background: transparent;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  column-gap: 9px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 8px;
   row-gap: 2px;
   align-items: center;
-  padding: 5px;
+  padding: 4px;
   text-align: left;
   cursor: pointer;
+  min-width: 0;
+}
+
+.bb-stepper button > strong,
+.bb-stepper button > small {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bb-stepper button:disabled {
@@ -1136,15 +1145,15 @@ svg {
 
 .bb-stepper button > span {
   grid-row: span 2;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border: 1.5px solid var(--bb-border-strong);
   border-radius: 50%;
   display: grid;
   place-items: center;
   color: var(--bb-ink-lite);
   font-family: var(--bb-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
 }
 
@@ -1162,12 +1171,13 @@ svg {
 }
 
 .bb-stepper strong {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .bb-stepper small {
   color: var(--bb-ink-lite);
-  font-size: 10px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
 }
 
 .bb-wizard-body {
