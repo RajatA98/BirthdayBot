@@ -194,25 +194,28 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       } else {
         setPhase("generating");
       }
-    } else {
-      const voiceDraft = readVoiceDraft();
-      if (voiceDraft) {
-        setVoiceSampleName(voiceDraft.voiceSampleName);
-        setVoiceSampleDataUrl(voiceDraft.voiceSampleDataUrl);
-        setVoiceSampleClipsData(voiceDraft.voiceSampleClips);
-        setVoiceSampleSource(voiceDraft.voiceSampleSource);
-        // Reconstruct guided clip Blob slots so the stepper shows
-        // complete state. Consent is intentionally NOT persisted —
-        // the user re-confirms each session.
-        const restoredClips = voiceDraft.voiceSampleClips
-          .slice(0, voiceSamplePrompts.length)
-          .map((dataUrl) =>
-            dataUrlStringToBlob(dataUrl, voiceDraft.voiceSampleName || "take.webm")
-          );
-        const padded: Array<Blob | null> = [...restoredClips];
-        while (padded.length < voiceSamplePrompts.length) padded.push(null);
-        setGuidedVoiceClips(padded);
-      }
+    }
+
+    // Voice draft is stored separately from the session — restore it on
+    // every mount, regardless of whether a session also exists, so the
+    // user's recorded takes survive across sessions and refreshes.
+    const voiceDraft = readVoiceDraft();
+    if (voiceDraft) {
+      setVoiceSampleName(voiceDraft.voiceSampleName);
+      setVoiceSampleDataUrl(voiceDraft.voiceSampleDataUrl);
+      setVoiceSampleClipsData(voiceDraft.voiceSampleClips);
+      setVoiceSampleSource(voiceDraft.voiceSampleSource);
+      // Reconstruct guided clip Blob slots so the stepper shows complete
+      // state. Consent is intentionally NOT persisted — the user re-confirms
+      // each session.
+      const restoredClips = voiceDraft.voiceSampleClips
+        .slice(0, voiceSamplePrompts.length)
+        .map((dataUrl) =>
+          dataUrlStringToBlob(dataUrl, voiceDraft.voiceSampleName || "take.webm")
+        );
+      const padded: Array<Blob | null> = [...restoredClips];
+      while (padded.length < voiceSamplePrompts.length) padded.push(null);
+      setGuidedVoiceClips(padded);
     }
 
     return () => {
@@ -233,6 +236,13 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
       voiceSampleClips: voiceSampleClipsData,
       voiceSampleSource
     });
+    if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+      const stored = window.localStorage.getItem(voiceDraftStorageKey);
+      console.info("[birthdaybot:voice-draft] persisted", {
+        bytes: stored?.length || 0,
+        sampleClipCount: voiceSampleClipsData.length
+      });
+    }
   }, [
     voiceSampleDataUrl,
     voiceSampleName,
@@ -242,9 +252,20 @@ export function CreationForm({ api = studioApi }: { api?: StudioApi }) {
 
   useEffect(() => {
     if (!plannedDraft || !plan || !requestId || !job) return;
+    // Strip voice payload from the session draft. The voice samples are
+    // already persisted under birthdaybot:voice-draft and would otherwise
+    // double-store ~1-3 MB of base64 audio per poll, blowing the
+    // localStorage quota and silently breaking voice-draft persistence.
+    const slimDraft: DraftRequest = {
+      ...plannedDraft,
+      voiceSampleDataUrl: undefined,
+      voiceSampleClips: undefined,
+      userMessageDataUrl: undefined,
+      voiceConsent: undefined
+    };
     persistSession({
       savedAt: Date.now(),
-      plannedDraft,
+      plannedDraft: slimDraft,
       plan,
       caption,
       requestId,
@@ -2046,15 +2067,34 @@ function readVoiceDraft(): PersistedVoiceDraft | null {
   }
 }
 
-function persistVoiceDraft(draft: PersistedVoiceDraft) {
-  if (typeof window === "undefined") return;
+function persistVoiceDraft(draft: PersistedVoiceDraft): boolean {
+  if (typeof window === "undefined") return false;
   try {
-    window.localStorage.setItem(voiceDraftStorageKey, JSON.stringify(draft));
+    const serialized = JSON.stringify(draft);
+    window.localStorage.setItem(voiceDraftStorageKey, serialized);
+    return true;
   } catch (error) {
+    // Likely QuotaExceededError. Try once more after wiping the session
+    // (which we can rebuild from the server) so the voice draft has its
+    // budget back.
     console.warn(
-      "[birthdaybot] persistVoiceDraft failed (storage quota?)",
+      "[birthdaybot] persistVoiceDraft failed, retrying after clearing session",
       error
     );
+    try {
+      window.localStorage.removeItem(sessionStorageKey);
+      window.localStorage.setItem(
+        voiceDraftStorageKey,
+        JSON.stringify(draft)
+      );
+      return true;
+    } catch (retryError) {
+      console.error(
+        "[birthdaybot] persistVoiceDraft retry also failed (storage quota exhausted)",
+        retryError
+      );
+      return false;
+    }
   }
 }
 
