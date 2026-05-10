@@ -404,19 +404,17 @@ svg {
 }
 
 .bb-postcard.is-preview {
-  /* Aspect-driven sizing: aspect-ratio (4/5) inherited from .bb-postcard
-     drives the relationship; max-height clamps the long edge to the
-     viewport, and min-height: 0 lets that clamp actually win against
-     the default `min-height: auto`. Width stays auto so it scales
-     down to maintain the ratio when height is the binding constraint.
-     overflow: hidden inherited from .bb-postcard keeps children clipped. */
-  max-height: min(70vh, 640px);
-  min-height: 0;
-  width: auto;
-  max-width: 100%;
+  /* Width-driven sizing — the canonical webapp pattern:
+     - width: 100% fills the panel up to max-width.
+     - max-width: 480px caps the portrait tile (same cap Instagram /
+       Vimeo use for 4:5 media tiles).
+     - aspect-ratio (4/5) inherited from .bb-postcard derives height
+       automatically from width.
+     - margin: 0 auto centers within the panel.
+     No max-height, no min-height fight, no aspect-vs-height tension. */
+  width: 100%;
+  max-width: 480px;
   margin: 0 auto;
-  align-self: center;
-  justify-self: center;
 }
 
 .bb-postcard-shade {
@@ -1540,30 +1538,15 @@ svg {
   color: white;
 }
 
-.bb-step-panel:has(.bb-preview-layout) {
-  max-width: 1100px;
-}
-
 .bb-preview-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-  gap: 28px;
-  align-items: start;
-}
-
-.bb-preview-side .bb-sticker-button,
-.bb-preview-side button {
-  max-width: 100%;
-  white-space: normal;
-  word-break: normal;
-}
-
-@media (max-width: 880px) {
-  .bb-preview-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .bb-postcard.is-preview {
-    max-height: min(60vh, 520px);
-  }
+  /* Single-column stack — same flow pattern as the Brief step. The
+     postcard sits on top, the sidebar cards stack below. No grid
+     means no aspect-ratio-vs-track-width tension and no horizontal
+     overflow risk on any viewport. */
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 28px;
 }
 
 .bb-preview-side {
