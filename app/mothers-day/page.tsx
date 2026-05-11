@@ -274,9 +274,13 @@ function StepPhoto({
   async function onPhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    // Compress before storing — raw camera photos blow past Vercel's 4 MB
+    // request body limit and the /api/plan call comes back as a 413. The
+    // BirthdayBot dashboard does the same compression in app/page.tsx
+    // (commits 344de73 / 8c089f5).
     update({
       photoName: file.name,
-      photoDataUrl: await fileToDataUrl(file)
+      photoDataUrl: await fileToCompressedDataUrl(file)
     });
   }
 
@@ -870,6 +874,54 @@ function fileToDataUrl(file: Blob) {
     reader.onerror = () => reject(new Error("File read failed."));
     reader.readAsDataURL(file);
   });
+}
+
+// Photo compression — same logic as the BirthdayBot dashboard (app/page.tsx).
+// Vercel's serverless route handlers reject request bodies > 4 MB with a 413,
+// and raw modern-camera photos easily hit 8-12 MB once base64-encoded. We
+// downscale to a 1280px long edge and re-encode as JPEG (quality 0.8 → 0.5
+// adaptive) before stashing the data URL in client state, so by the time the
+// photo reaches /api/plan it's safely under the limit.
+const MAX_PHOTO_LONG_EDGE = 1280;
+const PHOTO_JPEG_QUALITY = 0.8;
+const SAFE_DATA_URL_BYTES = 3.0 * 1024 * 1024;
+
+async function fileToCompressedDataUrl(file: File): Promise<string> {
+  if (typeof window === "undefined") {
+    return fileToDataUrl(file);
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    return compressBitmap(bitmap);
+  } catch {
+    return fileToDataUrl(file);
+  }
+}
+
+function compressBitmap(bitmap: ImageBitmap): string {
+  const longEdge = Math.max(bitmap.width, bitmap.height);
+  const scale = longEdge > MAX_PHOTO_LONG_EDGE ? MAX_PHOTO_LONG_EDGE / longEdge : 1;
+  const targetWidth = Math.round(bitmap.width * scale);
+  const targetHeight = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Canvas 2D context unavailable.");
+  }
+  ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+  bitmap.close();
+
+  let quality = PHOTO_JPEG_QUALITY;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > SAFE_DATA_URL_BYTES && quality > 0.5) {
+    quality -= 0.1;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+  return dataUrl;
 }
 
 function stopVoiceStream(stream: MediaStream | null) {
