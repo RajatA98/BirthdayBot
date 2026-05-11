@@ -93,12 +93,17 @@ export function buildFalPrompt(
 
   const occasion = getOccasionConfig(occasionFromDraft(draft));
   const isMothersDay = occasion.id === "mothers-day";
+  const isBirthday = occasion.id === "birthday";
   // Per-occasion celebration line — for birthdays it's party tropes (cake,
   // balloons, confetti); for Mother's Day it's tender tropes (warm light,
-  // small gestures). Keeps the visual feel matched to the occasion.
+  // small gestures); for general (the default "Just a message" preset) we
+  // tell the model to match the tone of the user's prompt and skip all
+  // holiday tropes by default.
   const celebrationLine = isMothersDay
     ? "Make the video feel like a tender Mother's Day moment with intimate, sendable details — warm sunlight, a small touch of nostalgia, a hug or shared look or quiet smile when it fits the scene. Avoid generic birthday-party tropes (no cake, no candles, no balloons, no confetti) unless the user prompt explicitly asks for them."
-    : "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene.";
+    : isBirthday
+      ? "Make the video clearly feel like a birthday celebration with tasteful party details such as candles, cake, balloons, confetti, gifts, warm smiles, celebratory lighting, or a joyful reveal when they fit the scene."
+      : "Feel personal and sincere — match the tone the user's prompt suggests. Do not default to holiday tropes (no cake, candles, balloons, or confetti) unless the prompt explicitly calls for them.";
 
   // Safe retry: drop the verbose user-direction layer entirely and ride on
   // the plan's internal `safePrompt` plus identity guardrails. The first
@@ -131,10 +136,17 @@ export function buildFalPrompt(
         ].join(". ")
       : isMothersDay
         ? "Use a warm, sendable Mother's-Day-tribute style."
-        : "Use a warm, sendable birthday-video style.";
+        : isBirthday
+          ? "Use a warm, sendable birthday-video style."
+          : "Use a warm, sendable personal-message style — let the user's prompt drive the specifics.";
   const isSpeakYourself = draft.voiceMode === "speak-yourself";
+  const spokenLabel = isMothersDay
+    ? "Mother's Day message"
+    : isBirthday
+      ? "birthday message"
+      : "personal video message";
   const audioDelivery = isSpeakYourself
-    ? `The voice-over is the user's OWN spoken ${isMothersDay ? "Mother's Day message" : "birthday message"} (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it.`
+    ? `The voice-over is the user's OWN spoken ${spokenLabel} (preserved through ElevenLabs Voice Changer). The video should match the natural timing, tone, and emotional energy of a real spoken message — let small pauses breathe, keep camera moves grounded, and let the visual beats land on the cadence of natural speech rather than overrun it.`
     : undefined;
 
   const cast = Array.isArray(plan.identityAnchors) && plan.identityAnchors.length > 0

@@ -71,6 +71,7 @@ describe("openai quota fallback", () => {
 function makeDraft() {
   return {
     mode: "simple" as const,
+    occasion: "birthday" as const,
     prompt: "make this a warm birthday celebration",
     photoName: "test.png",
     photoDataUrl: "data:image/png;base64,abc",

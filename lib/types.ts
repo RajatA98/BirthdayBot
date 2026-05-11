@@ -1,8 +1,11 @@
 export type Mode = "simple" | "advanced";
 
-// HolidayBot — extensible occasion identifier. Defaults to "birthday" so the
-// existing pipeline keeps behaving exactly as before when the field is absent.
-export type Occasion = "birthday" | "mothers-day";
+// Photo→video-message occasion identifier. Default is "general" — a
+// neutral preset with no holiday seasoning, shaped entirely by the user's
+// prompt. "birthday" and "mothers-day" stay as optional presets that bias
+// the plan / caption / overlay copy. Adding a new preset is a config entry
+// in `lib/occasions.ts` plus a new id here.
+export type Occasion = "general" | "birthday" | "mothers-day";
 
 export type AdvancedSettings = {
   tone: string;

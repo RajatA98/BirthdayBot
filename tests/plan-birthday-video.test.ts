@@ -86,6 +86,11 @@ describe("planBirthdayVideo prompt caching", () => {
 function makeDraft(): DraftRequest {
   return {
     mode: "simple",
+    // Default occasion flipped from "birthday" → "general" in the
+    // generic-messaging pivot. These tests are specifically about the
+    // birthday plan flow, so we pin occasion explicitly to keep the
+    // cache key + override behavior matching the suite's intent.
+    occasion: "birthday",
     prompt: "Make it cinematic.",
     birthdayName: "Maya",
     photoName: "test.png",

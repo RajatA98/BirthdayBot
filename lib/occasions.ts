@@ -1,9 +1,10 @@
 import type { DraftRequest, Occasion } from "@/lib/types";
 
-// HolidayBot — single source of truth for occasion-specific copy that the
-// pipeline parameterizes against. Adding a new holiday is: add the id to
-// `Occasion` in lib/types.ts, register a config here, and the rest of the
-// pipeline picks it up.
+// Photo→video-message occasion configs. The pipeline parameterizes its
+// prompts, captions, and overlay copy against this map. Default is
+// "general" — fully driven by the user's prompt, no holiday seasoning.
+// Adding a new preset is: add the id to `Occasion` in lib/types.ts,
+// register a config here, and the rest of the pipeline picks it up.
 
 export type OccasionConfig = {
   id: Occasion;
@@ -40,6 +41,34 @@ export type OccasionConfig = {
 };
 
 export const occasionConfigs: Record<Occasion, OccasionConfig> = {
+  general: {
+    id: "general",
+    label: "Just a message",
+    greeting: "",
+    honoree: "the person you're sending this to",
+    defaultRecipientName: "",
+    planSeasoning: [
+      "This is a personalized video MESSAGE, NOT a holiday or birthday video. Do not lean into birthday-party tropes, Mother's Day tributes, or any holiday-specific framing unless the user prompt explicitly asks for it.",
+      "The user's prompt is the primary creative direction — interpret it literally and follow its tone (sentimental, funny, congratulatory, longing, hype, etc.).",
+      "The caption should NOT start with 'Happy ___'. Lead with whatever fits the relationship and the prompt."
+    ].join(" "),
+    captionSeasoning: [
+      "Caption is a personalized video message, not a holiday greeting.",
+      "Do NOT start with 'Happy birthday' or 'Happy ___' anything. Open with warmth that fits the user's prompt and the relationship.",
+      "Use the recipient's name once if it's provided; otherwise stay second-person and direct."
+    ].join(" "),
+    sceneOpeningLine:
+      "Create a short cinematic personalized video message from the uploaded photo.",
+    promptSuggestions: [
+      "A thinking-of-you moment — sunlit window, soft smile, like a quiet text in video form.",
+      "Throwback road-trip energy — open windows, late afternoon light, laughing in the front seat.",
+      "A quick congratulations beat — proud, warm, a single celebratory gesture.",
+      "Just-because hug — golden hour, the kind of moment you wish you could send over the phone.",
+      "Long-distance hello — close-up, eye contact, a tiny wave to the camera."
+    ],
+    status: "live",
+    cardSwatch: "lavender"
+  },
   birthday: {
     id: "birthday",
     label: "Birthday",
@@ -93,79 +122,20 @@ export const occasionConfigs: Record<Occasion, OccasionConfig> = {
 };
 
 export function getOccasionConfig(occasion: Occasion | undefined): OccasionConfig {
-  return occasionConfigs[occasion ?? "birthday"];
+  return occasionConfigs[occasion ?? "general"];
 }
 
 export function occasionFromDraft(draft: Pick<DraftRequest, "occasion">): Occasion {
-  return draft.occasion ?? "birthday";
+  return draft.occasion ?? "general";
 }
 
-// Holiday rail surfaced on the BirthdayBot dashboard. Live ones are
-// clickable; coming-soon entries render disabled. Order is intentional —
-// most-relevant first.
-export const holidayRail: Array<{
-  id: Occasion | string;
+// Occasions surfaced in the dashboard's inline occasion picker. Order is
+// intentional — generic first (the default), then the seasoned presets.
+export const occasionPickerOptions: ReadonlyArray<{
+  id: Occasion;
   label: string;
-  emoji: string;
-  status: "live" | "coming-soon";
-  href?: string;
-  swatch: "pink" | "yellow" | "lime" | "lavender" | "coral";
 }> = [
-  {
-    id: "mothers-day",
-    label: "Mother's Day",
-    emoji: "💐",
-    status: "live",
-    href: "/mothers-day",
-    swatch: "lavender"
-  },
-  {
-    id: "fathers-day",
-    label: "Father's Day",
-    emoji: "🧢",
-    status: "coming-soon",
-    swatch: "coral"
-  },
-  {
-    id: "valentines",
-    label: "Valentine's Day",
-    emoji: "💌",
-    status: "coming-soon",
-    swatch: "pink"
-  },
-  {
-    id: "anniversary",
-    label: "Anniversary",
-    emoji: "💞",
-    status: "coming-soon",
-    swatch: "coral"
-  },
-  {
-    id: "graduation",
-    label: "Graduation",
-    emoji: "🎓",
-    status: "coming-soon",
-    swatch: "yellow"
-  },
-  {
-    id: "thanksgiving",
-    label: "Thanksgiving",
-    emoji: "🍂",
-    status: "coming-soon",
-    swatch: "yellow"
-  },
-  {
-    id: "christmas",
-    label: "Christmas",
-    emoji: "🎄",
-    status: "coming-soon",
-    swatch: "lime"
-  },
-  {
-    id: "new-year",
-    label: "New Year",
-    emoji: "🎉",
-    status: "coming-soon",
-    swatch: "lavender"
-  }
+  { id: "general", label: "Just a message" },
+  { id: "birthday", label: "Birthday" },
+  { id: "mothers-day", label: "Mother's Day" }
 ];

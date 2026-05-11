@@ -270,16 +270,26 @@ function buildOccasionOverride(
   config: ReturnType<typeof getOccasionConfig>
 ): string | undefined {
   if (config.id === "birthday") return undefined;
+
+  // The static instructions above are written for a birthday video. For any
+  // other occasion (including the generic "Just a message" default) we
+  // append an override block telling the model to ignore birthday-only
+  // framing. The override structure is identical for general vs. seasoned
+  // presets like Mother's Day; only the seasoning copy differs.
+  const greetingLine = config.greeting
+    ? `Replace any 'Happy birthday' phrasing with '${config.greeting}' (or a warm equivalent appropriate to the relationship).`
+    : "Do NOT open the caption with 'Happy ___' — this video is a generic personal message, not a holiday. Lead with whatever fits the relationship and the user's prompt.";
+
   return [
     `OCCASION OVERRIDE — ${config.label.toUpperCase()}`,
-    "The static instructions above are written for a birthday video. For THIS request, treat the occasion as a Mother's Day video and apply these overrides on top of the static rules:",
+    `The static instructions above are written for a birthday video. For THIS request, treat the occasion as a ${config.label} video and apply these overrides on top of the static rules:`,
     "",
     "PLAN OVERRIDES",
     config.planSeasoning,
     "",
     "CAPTION OVERRIDES",
     config.captionSeasoning,
-    `Replace any 'Happy birthday' phrasing with '${config.greeting}' (or a warm equivalent appropriate to the relationship).`,
+    greetingLine,
     "Do NOT include the word 'birthday' anywhere in the caption.",
     "Identity guardrails (subjectCount, identityAnchors, sceneGuardrails, the Constraints section in safePrompt) still apply unchanged."
   ].join("\n");

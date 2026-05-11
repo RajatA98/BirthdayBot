@@ -563,10 +563,7 @@ export function addAudioTag(text: string, cue?: string): string {
 
 function birthdayVoiceOverText(caption: string, draft: DraftRequest) {
   const occasion = getOccasionConfig(occasionFromDraft(draft));
-  const fallback =
-    occasion.id === "mothers-day"
-      ? "Happy Mother's Day. Thank you for everything — today and every day."
-      : "Happy birthday. I hope today makes you feel celebrated and loved.";
+  const fallback = occasionFallbackVoiceOver(occasion.id);
   const cleaned = cleanNarrationScript(caption || fallback, occasion);
   const limited = limitVoiceOverWords(cleaned);
 
@@ -575,6 +572,17 @@ function birthdayVoiceOverText(caption: string, draft: DraftRequest) {
   }
 
   return limited.slice(0, 257).trim();
+}
+
+function occasionFallbackVoiceOver(id: ReturnType<typeof getOccasionConfig>["id"]) {
+  if (id === "mothers-day") {
+    return "Happy Mother's Day. Thank you for everything — today and every day.";
+  }
+  if (id === "birthday") {
+    return "Happy birthday. I hope today makes you feel celebrated and loved.";
+  }
+  // General fallback: a neutral message that doesn't lead with "Happy ___".
+  return "Hey — just wanted to send something a little better than a text. Thinking of you.";
 }
 
 function cleanNarrationScript(
@@ -589,24 +597,25 @@ function cleanNarrationScript(
     .replace(/\.+$/g, ".")
     .trim();
 
-  // Trim filler before the actual greeting. For Mother's Day, find "happy
-  // mother's day" (case-insensitive, with optional apostrophe). Falls back
-  // to "happy birthday" for the default occasion.
-  const greetingPattern =
-    occasion.id === "mothers-day"
-      ? /\bhappy\s+mother(?:'|’)?s?\s+day\b/i
-      : /\bhappy birthday\b/i;
-  const greetingStart = cleaned.search(greetingPattern);
+  // Trim filler before the actual greeting. For seasoned occasions we look
+  // for the holiday greeting (e.g. "happy mother's day", "happy birthday")
+  // and slice from there. For the generic "Just a message" occasion there's
+  // no expected greeting to anchor on, so we keep the cleaned text as-is.
+  if (occasion.id !== "general") {
+    const greetingPattern =
+      occasion.id === "mothers-day"
+        ? /\bhappy\s+mother(?:'|’)?s?\s+day\b/i
+        : /\bhappy birthday\b/i;
+    const greetingStart = cleaned.search(greetingPattern);
 
-  if (greetingStart > 0 && greetingStart <= 90) {
-    return cleaned.slice(greetingStart).trim();
+    if (greetingStart > 0 && greetingStart <= 90) {
+      return cleaned.slice(greetingStart).trim();
+    }
   }
 
   if (cleaned) return cleaned;
 
-  return occasion.id === "mothers-day"
-    ? "Happy Mother's Day. Thank you for everything — today and every day."
-    : "Happy birthday. I hope today makes you feel celebrated and loved.";
+  return occasionFallbackVoiceOver(occasion.id);
 }
 
 function limitVoiceOverWords(text: string) {

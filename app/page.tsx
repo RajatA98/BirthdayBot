@@ -4,8 +4,8 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 
 import { studioApi } from "@/lib/client-api";
 import { defaultAdvancedSettings } from "@/lib/defaults";
-import { holidayRail } from "@/lib/occasions";
-import { AgentPlan, DraftRequest, JobRecord, PlanRecord } from "@/lib/types";
+import { occasionPickerOptions } from "@/lib/occasions";
+import { AgentPlan, DraftRequest, JobRecord, Occasion, PlanRecord } from "@/lib/types";
 
 type ColorName = "pink" | "yellow" | "lime" | "lavender" | "coral";
 type FriendStatus = "idea" | "draft" | "scheduled" | "sent";
@@ -46,6 +46,7 @@ type Friend = {
   musicGenre?: string;
   musicGenreOther?: string;
   promptSuggestion?: string;
+  occasion?: Occasion;
 };
 
 type VoiceCloneState = {
@@ -361,8 +362,6 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
           </div>
         </section>
 
-        <HolidayRail />
-
         <section className="bb-section">
           <SectionHead label="Recently sent" count={recentlySent.length} />
           <div className="bb-sent-row">
@@ -380,51 +379,6 @@ function Dashboard({ setView }: { setView: (view: View) => void }) {
         </section>
       </div>
     </div>
-  );
-}
-
-function HolidayRail() {
-  return (
-    <section className="bb-section bb-holiday-rail">
-      <header className="bb-section-head">
-        <h2>Try our other cards</h2>
-        <span>* HolidayBot</span>
-      </header>
-      <p className="bb-holiday-rail-hint">
-        Same engine, different occasion. Mother&apos;s Day is live — the rest are coming soon.
-      </p>
-      <div className="bb-holiday-grid">
-        {holidayRail.map((entry) => {
-          const isLive = entry.status === "live";
-          const className = `bb-holiday-card swatch-${entry.swatch} ${isLive ? "is-live" : "is-soon"}`;
-          if (isLive && entry.href) {
-            return (
-              <a key={entry.id} className={className} href={entry.href}>
-                <span className="bb-holiday-emoji" aria-hidden>
-                  {entry.emoji}
-                </span>
-                <strong>{entry.label}</strong>
-                <small>Open the studio</small>
-              </a>
-            );
-          }
-          return (
-            <div
-              key={entry.id}
-              className={className}
-              role="presentation"
-              aria-disabled
-            >
-              <span className="bb-holiday-emoji" aria-hidden>
-                {entry.emoji}
-              </span>
-              <strong>{entry.label}</strong>
-              <small>Coming soon</small>
-            </div>
-          );
-        })}
-      </div>
-    </section>
   );
 }
 
@@ -1005,13 +959,32 @@ function StepPrompt({
     update({ accents: next });
   }
 
+  const currentOccasion: Occasion = draft.occasion ?? "general";
+
   return (
     <section className="bb-step-panel">
       <Heading
         kicker="Step 3 * What you want"
-        title={<>Tell us what kind of <mark className="pink">birthday video</mark> to make.</>}
+        title={<>Tell us what kind of <mark className="pink">video message</mark> to make.</>}
         sub="Say it the way you'd describe it to a friend. We'll turn this into a director's brief on the next step — and you can edit anything you don't love."
       />
+      <div className="bb-prompt-head">
+        <label className="bb-occasion-picker">
+          <span>Occasion</span>
+          <select
+            value={currentOccasion}
+            onChange={(event) =>
+              update({ occasion: event.target.value as Occasion })
+            }
+          >
+            {occasionPickerOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <Field
         label="Prompt"
         hint={`${(draft.message || "").length} / 500`}
@@ -1021,7 +994,7 @@ function StepPrompt({
           maxLength={500}
           rows={6}
           onChange={(event) => update({ message: event.target.value })}
-          placeholder="Make it feel like a warm cinematic rooftop birthday at golden hour, with the two of us laughing about that time we missed the last train home."
+          placeholder="Make it feel like a warm cinematic rooftop moment at golden hour, with the two of us laughing about that time we missed the last train home."
         />
       </Field>
       <div className="bb-suggest-row">
@@ -2105,21 +2078,32 @@ function blankFriend(): Friend {
     color: "pink",
     message: "",
     style: "",
-    delivery: "text"
+    delivery: "text",
+    // Default to the generic "Just a message" preset. The user can switch
+    // to Birthday / Mother's Day via the picker on the Prompt step.
+    occasion: "general"
   };
 }
 
 function buildSimpleDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRequest {
   const name = friend.firstName || firstName(friend.name) || friend.name;
-  const userPrompt = friend.message?.trim() || `Make a warm birthday video for ${name || "my friend"}.`;
+  const occasion = friend.occasion ?? "general";
+  const fallbackPrompt =
+    occasion === "mothers-day"
+      ? `Make a tender Mother's Day video for ${name || "this person"}.`
+      : occasion === "birthday"
+        ? `Make a warm birthday video for ${name || "my friend"}.`
+        : `Make a short, personal video message for ${name || "this person"}.`;
+  const userPrompt = friend.message?.trim() || fallbackPrompt;
   const directives = buildPromptDirectives(friend);
   const prompt = directives ? `${userPrompt}\n\n${directives}` : userPrompt;
 
   return {
     mode: "simple",
+    occasion,
     birthdayName: name,
     prompt,
-    photoName: friend.photoName || `${name || "birthday"}-photo.png`,
+    photoName: friend.photoName || `${name || "video-message"}-photo.png`,
     photoDataUrl: friend.photoDataUrl || "",
     voiceSampleName: voiceClone.voiceSampleName,
     voiceSampleDataUrl: voiceClone.voiceSampleDataUrl,
@@ -2167,17 +2151,23 @@ function buildDraftRequest(friend: Friend, voiceClone: VoiceCloneState): DraftRe
   const name = friend.firstName || firstName(friend.name);
   const style = styleLabel(friend.style).toLowerCase();
   const voiceMode = friend.style === "sing-along" ? "song" : "narrate";
+  const occasion = friend.occasion ?? "general";
 
   return {
     mode: "advanced",
+    occasion,
     birthdayName: name,
     prompt: [
-      friend.message || `Make a warm birthday video for ${name || "my friend"}.`,
+      friend.message || `Make a short personal video message for ${name || "this person"}.`,
       `Style: ${style}.`,
       `Relation: ${friend.relation}.`,
-      "Use a cheerful birthday-party look with confetti, candles, and a sendable personal feel."
+      occasion === "birthday"
+        ? "Use a cheerful birthday-party look with confetti, candles, and a sendable personal feel."
+        : occasion === "mothers-day"
+          ? "Use a tender Mother's Day look — warm light, gentle motion, no birthday tropes."
+          : "Match the tone of the prompt; do not default to holiday tropes."
     ].join(" "),
-    photoName: friend.photoName || `${name || "birthday"}-photo.png`,
+    photoName: friend.photoName || `${name || "video-message"}-photo.png`,
     photoDataUrl: friend.photoDataUrl || "",
     voiceSampleName: voiceClone.voiceSampleName,
     voiceSampleDataUrl: voiceClone.voiceSampleDataUrl,

@@ -7,9 +7,14 @@ export function buildMockPlan(
 ): AgentPlan {
   const occasion = getOccasionConfig(occasionFromDraft(input));
   const isMothersDay = occasion.id === "mothers-day";
+  const isBirthday = occasion.id === "birthday";
+  const isGeneral = occasion.id === "general";
+
   const subjectFallback = isMothersDay
     ? "a quiet Mother's Day moment"
-    : "a birthday moment";
+    : isBirthday
+      ? "a birthday moment"
+      : "a personal video message";
   const subject = input.prompt.trim() || subjectFallback;
   const tone = input.mode === "advanced" ? input.advanced.tone : "Heartfelt";
   const sceneIdea =
@@ -17,7 +22,9 @@ export function buildMockPlan(
       ? input.advanced.sceneIdea
       : isMothersDay
         ? "Mother's Day tribute"
-        : "Birthday party";
+        : isBirthday
+          ? "Birthday party"
+          : "Personal message";
   const motion =
     input.mode === "advanced"
       ? input.advanced.motionIntensity
@@ -26,18 +33,26 @@ export function buildMockPlan(
   return {
     title: isMothersDay
       ? `${tone} Mother's Day moment`
-      : `${tone} birthday reveal`,
+      : isBirthday
+        ? `${tone} birthday reveal`
+        : `${tone} video message`,
     concept: isMothersDay
       ? `Turn the uploaded photo into a tender Mother's Day tribute centered on ${subject}.`
-      : `Turn the uploaded photo into a cinematic birthday beat centered on ${subject}.`,
+      : isBirthday
+        ? `Turn the uploaded photo into a cinematic birthday beat centered on ${subject}.`
+        : `Turn the uploaded photo into a short cinematic video message centered on ${subject}.`,
     vibe: `${tone} with a polished, sendable emotional arc.`,
     sceneDirection: `Use ${sceneIdea.toLowerCase()} as the visual anchor while keeping the people recognizable.`,
     motionDirection: isMothersDay
       ? `${motion} camera motion with gentle reframing and a soft, nostalgic energy.`
-      : `${motion} camera motion with gentle reframing and birthday-moment energy.`,
+      : isBirthday
+        ? `${motion} camera motion with gentle reframing and birthday-moment energy.`
+        : `${motion} camera motion with gentle reframing that matches the tone of the user's prompt.`,
     captionApproach: isMothersDay
       ? "Write a tender ~12-second Mother's Day script that feels personal, grateful, and easy to send."
-      : "Write a polished 12-15 second birthday script that feels warm, direct, and easy to send.",
+      : isBirthday
+        ? "Write a polished 12-15 second birthday script that feels warm, direct, and easy to send."
+        : "Write a short ~10-12 second personal video-message script. No 'Happy ___' greeting unless it fits the prompt; lead with the relationship and the moment.",
     generationStrategy: "Start close to the original photo, then elevate it with cinematic motion and atmosphere.",
     keepFromPhoto: [
       "Facial identity and recognizable clothing cues",
@@ -46,7 +61,9 @@ export function buildMockPlan(
     ],
     surpriseFactor: isMothersDay
       ? "Add a tender, gift-like feel without drifting from the people in the photo."
-      : "Add a polished birthday-movie feel without drifting so far that the people stop feeling real.",
+      : isBirthday
+        ? "Add a polished birthday-movie feel without drifting so far that the people stop feeling real."
+        : "Add a small premium touch (light, motion, atmosphere) that elevates the moment without changing the people.",
     subjectCount: analysis.subjectCount,
     identityAnchors: analysis.identityAnchors,
     sceneGuardrails: [
@@ -60,7 +77,8 @@ export function buildMockPlan(
       analysis,
       sceneIdea,
       motion,
-      isMothersDay
+      isMothersDay,
+      isGeneral
     }),
     negativePrompt: [
       "No extra people. No duplicate person. No identity drift. No face replacement. No gender swap. No outfit replacement. No subject removal. No scene rewrite that removes one of the original people.",
@@ -86,6 +104,13 @@ export function buildMockCaption(input: DraftRequest, plan: AgentPlan) {
       : `Happy Mother's Day. Just wanted to send something that actually feels like a hug. Thank you for everything.`;
   }
 
+  if (occasion.id === "general") {
+    // No "Happy ___" lead — this is a generic personalized message.
+    return name
+      ? `${name}, just wanted to send something a little better than a text. Thinking of you.`
+      : `Just wanted to send something a little better than a text. Thinking of you.`;
+  }
+
   if (isFunny) {
     return name
       ? `Happy birthday, ${name}. Chaos partner of the year, every year. Hope this one's a good one. Love you.`
@@ -103,7 +128,8 @@ function buildDirectorPrompt({
   analysis,
   sceneIdea,
   motion,
-  isMothersDay
+  isMothersDay,
+  isGeneral
 }: {
   subject: string;
   tone: string;
@@ -111,15 +137,18 @@ function buildDirectorPrompt({
   sceneIdea: string;
   motion: string;
   isMothersDay: boolean;
+  isGeneral: boolean;
 }) {
   return [
     isMothersDay
       ? `Direct this like a tender Mother's Day short film.`
-      : `Direct this like a premium birthday short film.`,
+      : isGeneral
+        ? `Direct this like a short, sendable personal video message.`
+        : `Direct this like a premium birthday short film.`,
     `Scene: ${subject} with a ${tone.toLowerCase()} emotional beat, grounded in the original photo and influenced by ${sceneIdea.toLowerCase()}.`,
-    `Subject motion: preserve exactly ${analysis.subjectCount} people from the source image and animate them with ${motion.toLowerCase()} natural ${isMothersDay ? "tender" : "celebration"} energy, subtle smiles, gentle gesture changes, and realistic body motion.`,
+    `Subject motion: preserve exactly ${analysis.subjectCount} people from the source image and animate them with ${motion.toLowerCase()} natural ${isMothersDay ? "tender" : isGeneral ? "" : "celebration"} energy, subtle smiles, gentle gesture changes, and realistic body motion.`,
     `Camera: elegant slow push or drift, cinematic reframing, stable premium composition.`,
-    `Lighting: ${isMothersDay ? "warm golden-hour light with a soft nostalgic feel" : "warm polished birthday atmosphere"} and believable highlights and soft cinematic depth.`,
+    `Lighting: ${isMothersDay ? "warm golden-hour light with a soft nostalgic feel" : isGeneral ? "warm cinematic light that matches the mood of the prompt" : "warm polished birthday atmosphere"} and believable highlights and soft cinematic depth.`,
     `Important details: ${[
       ...analysis.identityAnchors,
       ...analysis.clothingAnchors,

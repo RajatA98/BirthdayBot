@@ -125,6 +125,23 @@ describe("buildFalPrompt", () => {
     expect(prompt).not.toContain("I wanted this to feel more personal");
     expect(prompt).not.toContain("Hope your day feels cinematic.");
   });
+
+  it("generic occasion: no birthday or Mother's Day framing in the prompt", () => {
+    // After the generic-messaging pivot, occasion="general" should produce
+    // a neutral prompt — no party tropes, no holiday tribute language,
+    // just personalized video messaging that follows the user's prompt.
+    const prompt = buildFalPrompt(
+      makeDraft({ occasion: "general" }),
+      makePlan(),
+      "Thinking of you, road trip flashback."
+    );
+
+    expect(prompt).toContain("Create a short cinematic personalized video");
+    expect(prompt).not.toContain("birthday celebration");
+    expect(prompt).not.toContain("Mother's Day");
+    expect(prompt).not.toContain("party tropes");
+    expect(prompt).toContain("Feel personal and sincere");
+  });
 });
 
 describe("buildFalInput", () => {
@@ -231,6 +248,26 @@ describe("buildFalInput", () => {
     expect(input).not.toHaveProperty("generate_audio");
     expect(input).not.toHaveProperty("voice_ids");
     expect(input.prompt).not.toContain("<<<voice_1>>>");
+  });
+
+  it("generic occasion: omits the Mother's Day negative-prompt extras", () => {
+    // Mother's Day suppresses cake/balloons/candles via
+    // negativePromptExtras. Generic should NOT carry those — the user
+    // might explicitly want cake in their prompt.
+    const input = buildFalInput(
+      "fal-ai/kling-video/v3/standard/image-to-video",
+      "https://example.com/photo.png",
+      makeDraft({ occasion: "general" }),
+      makePlan(),
+      "Hey hey hey"
+    );
+
+    expect(input.negative_prompt).not.toContain("birthday cake");
+    expect(input.negative_prompt).not.toContain("birthday candles");
+    expect(input.negative_prompt).not.toContain("balloon arch");
+    // The generic identity-lock / text-suppression terms still apply.
+    expect(input.negative_prompt).toContain("on-screen text");
+    expect(input.negative_prompt).toContain("identity");
   });
 });
 
@@ -556,6 +593,12 @@ describe("startVideoGeneration voice-over", () => {
 function makeDraft(overrides: Partial<DraftRequest> = {}): DraftRequest {
   return {
     mode: "simple",
+    // This test suite covers the birthday flow specifically. After the
+    // generic-messaging pivot the default occasion is "general", so we
+    // pin "birthday" here to keep the birthday-specific assertions valid.
+    // Tests that want to assert generic behavior can override via the
+    // `overrides` arg.
+    occasion: "birthday",
     prompt: "Make it a rooftop toast at sunset.",
     photoName: "birthday.png",
     photoDataUrl: "data:image/png;base64,ZmFrZQ==",

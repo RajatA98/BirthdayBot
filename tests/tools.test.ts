@@ -5,6 +5,9 @@ import { defaultAdvancedSettings } from "@/lib/defaults";
 describe("core tools", () => {
   const draft = {
     mode: "simple" as const,
+    // This suite exercises the birthday plan path specifically; the default
+    // occasion flipped from "birthday" → "general" in the pivot.
+    occasion: "birthday" as const,
     prompt: "make this a warm birthday celebration",
     photoName: "test.png",
     photoDataUrl: "data:image/png;base64,abc",
