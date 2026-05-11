@@ -554,8 +554,12 @@ function StepBrief({
             ) : draft.photoDataUrl ? (
               <img src={draft.photoDataUrl} alt="" className="md-preview-photo" />
             ) : null}
-            <div className="md-overlay">
-              <strong>
+            <div className="md-overlay md-overlay-sparkle">
+              <span className="md-sparkle md-sparkle-tl" aria-hidden>✦</span>
+              <span className="md-sparkle md-sparkle-tr" aria-hidden>✧</span>
+              <span className="md-sparkle md-sparkle-bl" aria-hidden>✧</span>
+              <span className="md-sparkle md-sparkle-br" aria-hidden>✦</span>
+              <strong className="md-overlay-title">
                 {occasionConfig.greeting}
                 {draft.recipientName.trim() ? `, ${draft.recipientName.trim()}` : ""}
               </strong>

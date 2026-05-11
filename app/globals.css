@@ -1007,6 +1007,93 @@ svg {
   pointer-events: none;
 }
 
+/* Sparkly Mother's Day overlay — replaces the flat black-on-white card with
+   a soft rose-tinted glass panel, a gold/rose-gold gradient title that
+   shimmers, a tender glow, and four twinkling stars at the corners. Purely
+   visual decoration on top of the muxed video preview. */
+.md-overlay-sparkle {
+  /* Translucent rose-tinted glass instead of flat black */
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 220, 235, 0.92),
+      rgba(255, 245, 230, 0.92) 40%,
+      rgba(255, 215, 230, 0.92)
+    );
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 8px 32px -12px rgba(212, 100, 140, 0.45),
+    inset 0 0 24px rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 14px 22px;
+  font-size: 22px;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+}
+
+.md-overlay-title {
+  position: relative;
+  display: inline-block;
+  /* Rose-gold + champagne gradient that animates side-to-side for shimmer */
+  background: linear-gradient(
+    100deg,
+    #c08457 0%,
+    #f5d199 18%,
+    #b07d4a 32%,
+    #f7e1b5 48%,
+    #c2845a 62%,
+    #ffe9c2 78%,
+    #b67448 95%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.55))
+    drop-shadow(0 0 8px rgba(212, 100, 140, 0.3));
+  animation: md-shimmer 3.4s ease-in-out infinite;
+}
+
+@keyframes md-shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.md-sparkle {
+  position: absolute;
+  color: #f5d199;
+  font-size: 14px;
+  text-shadow:
+    0 0 6px rgba(245, 209, 153, 0.9),
+    0 0 12px rgba(255, 220, 180, 0.6);
+  animation: md-twinkle 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.md-sparkle-tl { top: 4px;    left: 8px;   animation-delay: 0s;    font-size: 16px; }
+.md-sparkle-tr { top: 6px;    right: 10px; animation-delay: 0.6s;  font-size: 12px; }
+.md-sparkle-bl { bottom: 6px; left: 12px;  animation-delay: 1.2s;  font-size: 13px; }
+.md-sparkle-br { bottom: 4px; right: 8px;  animation-delay: 1.8s;  font-size: 18px; }
+
+@keyframes md-twinkle {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.85) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25) rotate(15deg);
+  }
+}
+
+/* Respect users who'd rather not have movement in their UI */
+@media (prefers-reduced-motion: reduce) {
+  .md-overlay-title { animation: none; }
+  .md-sparkle { animation: none; opacity: 0.85; }
+}
+
 /* HolidayBot rail — sibling occasions surfaced on the dashboard */
 .bb-holiday-rail-hint {
   margin: -6px 0 14px;
