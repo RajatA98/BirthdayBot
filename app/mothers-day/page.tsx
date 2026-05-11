@@ -461,6 +461,25 @@ function StepBrief({
   const isGenerating =
     generation.phase === "planning" || generation.phase === "generating";
 
+  // Pop-out timing: while the muxed video plays, the sparkle overlay stays
+  // muted (low opacity, no shimmer). When the playhead gets within ~2.6s of
+  // the end, we flip `isPopped` and the overlay scales in with a big bounce
+  // + bright sparkles for the closing beat. Seeking back resets it so it
+  // can pop again on the next watch.
+  const [isPopped, setIsPopped] = useState(false);
+  const POP_LEAD_SECONDS = 2.6;
+
+  function onVideoTimeUpdate(event: React.SyntheticEvent<HTMLVideoElement>) {
+    const video = event.currentTarget;
+    const remaining = video.duration - video.currentTime;
+    if (!Number.isFinite(remaining)) return;
+    if (remaining <= POP_LEAD_SECONDS && !isPopped) setIsPopped(true);
+    else if (remaining > POP_LEAD_SECONDS + 0.4 && isPopped) setIsPopped(false);
+  }
+  function onVideoReset() {
+    setIsPopped(false);
+  }
+
   if (loading) {
     return (
       <section className="md-panel">
@@ -550,15 +569,39 @@ function StepBrief({
         <aside className="md-preview">
           <div className={`bb-postcard swatch-${draft.swatch} is-preview`}>
             {generation.videoUrl ? (
-              <video controls playsInline src={generation.videoUrl} className="bb-generated-video" />
+              <video
+                controls
+                playsInline
+                src={generation.videoUrl}
+                className="bb-generated-video"
+                onTimeUpdate={onVideoTimeUpdate}
+                onSeeked={onVideoTimeUpdate}
+                onEnded={onVideoReset}
+                onLoadedMetadata={onVideoReset}
+              />
             ) : draft.photoDataUrl ? (
               <img src={draft.photoDataUrl} alt="" className="md-preview-photo" />
             ) : null}
-            <div className="md-overlay md-overlay-sparkle">
+            <div
+              className={[
+                "md-overlay",
+                "md-overlay-sparkle",
+                // When a video is loaded, the overlay starts muted and only
+                // pops to full brightness for the closing beat. Without a
+                // video (the static-photo preview before generation), keep
+                // it visible always so the postcard reads well.
+                generation.videoUrl ? "md-overlay-timed" : "",
+                isPopped ? "md-overlay-popped" : ""
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
               <span className="md-sparkle md-sparkle-tl" aria-hidden>✦</span>
               <span className="md-sparkle md-sparkle-tr" aria-hidden>✧</span>
               <span className="md-sparkle md-sparkle-bl" aria-hidden>✧</span>
               <span className="md-sparkle md-sparkle-br" aria-hidden>✦</span>
+              <span className="md-sparkle md-sparkle-c1" aria-hidden>✦</span>
+              <span className="md-sparkle md-sparkle-c2" aria-hidden>✧</span>
               <strong className="md-overlay-title">
                 {occasionConfig.greeting}
                 {draft.recipientName.trim() ? `, ${draft.recipientName.trim()}` : ""}

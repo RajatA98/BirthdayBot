@@ -1088,10 +1088,59 @@ svg {
   }
 }
 
+/* Timed reveal: when a video is playing, the overlay starts muted and
+   pops to full brightness only at the closing beat. JS in StepBrief flips
+   .md-overlay-popped when video.currentTime is within ~2.6s of the end. */
+.md-overlay-timed {
+  opacity: 0;
+  transform: scale(0.6) translateY(8px);
+  transition: opacity 360ms ease, transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.md-overlay-timed .md-sparkle {
+  opacity: 0;
+  transition: opacity 360ms ease;
+}
+.md-overlay-popped {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  animation: md-pop-in 700ms cubic-bezier(0.22, 1.4, 0.36, 1) 1;
+}
+.md-overlay-popped .md-sparkle {
+  opacity: 1;
+  animation:
+    md-twinkle 2.4s ease-in-out infinite,
+    md-sparkle-burst 700ms ease-out 1;
+}
+.md-overlay-popped .md-sparkle-tl { animation-delay: 0s,    0ms; }
+.md-overlay-popped .md-sparkle-tr { animation-delay: 0.6s,  60ms; }
+.md-overlay-popped .md-sparkle-bl { animation-delay: 1.2s,  120ms; }
+.md-overlay-popped .md-sparkle-br { animation-delay: 1.8s,  180ms; }
+.md-overlay-popped .md-sparkle-c1 { animation-delay: 0.9s,  240ms; }
+.md-overlay-popped .md-sparkle-c2 { animation-delay: 1.5s,  300ms; }
+
+/* Extra sparkles that only show in the popped state — placed slightly
+   outside the panel for a confetti-burst feel. */
+.md-sparkle-c1 { top: -10px; left: 38%;  font-size: 14px; }
+.md-sparkle-c2 { bottom: -8px; right: 32%; font-size: 14px; }
+
+@keyframes md-pop-in {
+  0%   { transform: scale(0.6) translateY(8px); filter: brightness(0.85); }
+  55%  { transform: scale(1.08) translateY(-3px); filter: brightness(1.18) drop-shadow(0 0 14px rgba(255, 215, 175, 0.85)); }
+  100% { transform: scale(1) translateY(0); filter: brightness(1); }
+}
+@keyframes md-sparkle-burst {
+  0%   { transform: scale(0.2) rotate(0deg); opacity: 0; }
+  60%  { transform: scale(1.6) rotate(180deg); opacity: 1; }
+  100% { transform: scale(1) rotate(360deg); opacity: 1; }
+}
+
 /* Respect users who'd rather not have movement in their UI */
 @media (prefers-reduced-motion: reduce) {
   .md-overlay-title { animation: none; }
   .md-sparkle { animation: none; opacity: 0.85; }
+  .md-overlay-timed { transition: none; opacity: 1; transform: none; }
+  .md-overlay-popped { animation: none; }
+  .md-overlay-popped .md-sparkle { animation: none; }
 }
 
 /* HolidayBot rail — sibling occasions surfaced on the dashboard */
