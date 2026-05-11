@@ -425,7 +425,11 @@ describe("startVideoGeneration voice-over", () => {
     const result = await startVideoGeneration(planRecord, makeJob());
 
     expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BwgJ");
-    expect(result.voiceOverError).toBeUndefined();
+    // After silently falling back to a stock voice, surface a soft
+    // voiceOverError so the user knows their clone didn't actually run.
+    // Without this the output sounds generic and the user has no idea why.
+    expect(result.voiceOverError).toMatch(/voice cloning failed/i);
+    expect(result.voiceOverError).toContain("voice cloning not available on this tier");
   });
 
   it("skips IVC and reuses the cached voice_id when job.providerVoiceId is pre-populated", async () => {

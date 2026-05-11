@@ -190,7 +190,6 @@ export default function MothersDayPage() {
           ← Back to BirthdayBot
         </a>
         <span className="md-eyebrow">HolidayBot · Mother&apos;s Day</span>
-        <span className="md-status-pill">Currently being worked on</span>
       </header>
 
       <section className="md-stage">
@@ -562,14 +561,24 @@ function StepBrief({
             <span className="bb-card-heading">Video output</span>
             <strong>
               {generation.phase === "completed"
-                ? "Video ready"
+                ? "Mother's Day video is ready 💐"
                 : generation.phase === "failed"
                   ? "Needs attention"
                   : "Generate video"}
             </strong>
             <small>{generation.error || generation.message}</small>
+            {generation.videoUrl ? (
+              <a
+                className="bb-sticker-button"
+                href={`/api/download?url=${encodeURIComponent(generation.videoUrl)}&name=mothers-day-${draft.recipientName.trim().toLowerCase().replace(/\s+/g, "-") || "video"}.mp4`}
+              >
+                Download video
+              </a>
+            ) : null}
             <button
-              className="bb-sticker-button"
+              className={
+                generation.videoUrl ? "bb-outline-button" : "bb-sticker-button"
+              }
               onClick={onGenerate}
               disabled={isGenerating}
             >

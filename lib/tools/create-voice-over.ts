@@ -84,6 +84,8 @@ async function createVoiceOverInner(
   // the *output* sounds polished but their prosody, timing, laughs, and
   // emotional delivery are preserved verbatim — TTS-from-script can never
   // do that.
+  let voiceCloneFailureMessage: string | undefined;
+
   if (isSpeakYourself && (hasSample || cachedVoiceId) && hasConsent) {
     let voiceId: string | undefined = cachedVoiceId;
     try {
@@ -107,10 +109,12 @@ async function createVoiceOverInner(
         voiceOverUrl
       };
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       console.warn(
         "[birthdaybot:voice_clone] speech-to-speech failed, falling back to stock voice:",
-        error instanceof Error ? error.message : error
+        detail
       );
+      voiceCloneFailureMessage = `Voice Changer (speech-to-speech) failed — fell back to a stock narrator voice. Reason: ${truncate(detail, 200)}`;
       // fall through to stock-voice fallback (will be TTS, not S2S)
     }
   }
@@ -148,10 +152,15 @@ async function createVoiceOverInner(
         voiceOverUrl
       };
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       console.warn(
         "[birthdaybot:voice_clone] cloning failed, falling back to stock voice:",
-        error instanceof Error ? error.message : error
+        detail
       );
+      // Surface to UI so users don't think their voice was used when it
+      // wasn't. Common causes: free-tier IVC not enabled on the account,
+      // sample shorter than ElevenLabs' minimum, audio format rejected.
+      voiceCloneFailureMessage = `Voice cloning failed — we narrated with a stock voice instead. Reason: ${truncate(detail, 200)}`;
       // fall through to stock-voice fallback
     }
   }
@@ -186,7 +195,15 @@ async function createVoiceOverInner(
         use_speaker_boost: false
       }
     );
-    return { voiceOverUrl };
+    return {
+      voiceOverUrl,
+      // If we got here AFTER a clone attempt failed, surface that to the
+      // UI so the user knows the stock voice is a fallback (not their
+      // clone). Without this signal the output sounds generic for
+      // mysterious reasons — exactly the "is the clone hooked up?"
+      // question that brought us here.
+      voiceOverError: voiceCloneFailureMessage
+    };
   } catch (error) {
     return {
       voiceOverError:
@@ -195,6 +212,11 @@ async function createVoiceOverInner(
           : "ElevenLabs voice-over generation failed."
     };
   }
+}
+
+function truncate(text: string, max: number) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
 type StockVoice = {
