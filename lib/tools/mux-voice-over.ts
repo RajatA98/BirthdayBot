@@ -148,14 +148,22 @@ function muxFfmpegArgs({
     "-filter_complex",
     [
       // Voice bus: gain-up, gentle compression, split for sidechain key + final mix
-      "[1:a:0]volume=1.45,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,asplit=2[voice_main][voice_key]",
+      "[1:a:0]volume=1.45,acompressor=threshold=-18dB:ratio=3:attack=5:release=80,asplit=2[voice_main][voice_key_pre]",
+      // Critical: apad the sidechain KEY (not voice_main). sidechaincompress
+      // ends when its key input ends, which would kill music_ducked at voice-
+      // end and truncate the whole clip. Padding the key with infinite
+      // silence keeps the compressor running for the full -t window so music
+      // plays out the tail. voice_main itself stays finite so the voice mixes
+      // in only while it's actually speaking.
+      "[voice_key_pre]apad[voice_key]",
       // Music bus: nominal gain, padded so we always have audio for the full duration
       "[2:a:0]volume=0.32,apad[music_pre]",
-      // Sidechain duck: music is ATTENUATED in real time when the voice key is present
+      // Sidechain duck: music is ATTENUATED in real time when the voice key is present.
+      // With voice_key apad'd above, the compressor stays alive past voice end and music
+      // releases back to nominal volume for the rest of the scene.
       "[music_pre][voice_key]sidechaincompress=threshold=0.05:ratio=8:attack=8:release=320:makeup=1[music_ducked]",
       // Final mix: voice + ducked music, then loudness-normalize to social/mobile target (-16 LUFS).
-      // duration=longest keeps the audio bus alive for the full video length — once the voice ends,
-      // the ducked music plays out the rest of the scene instead of cutting the clip short.
+      // duration=longest + an infinite music bed = audio stream lives for the full -t window.
       "[voice_main][music_ducked]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,loudnorm=I=-16:LRA=11:TP=-1.5,alimiter=limit=0.97[aout]"
     ].join(";"),
     "-map",
