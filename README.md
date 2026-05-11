@@ -69,39 +69,46 @@ http://localhost:3000
 
 ## Environment Variables
 
-Create a local `.env` file in the repo root:
+Copy the committed template, fill in your secrets, and you're set:
 
-```env
-OPENAI_API_KEY=
-OPENAI_PLAN_MODEL=gpt-4.1-mini
-OPENAI_CAPTION_MODEL=gpt-4.1-mini
-
-FAL_KEY=
-FAL_VIDEO_MODEL=fal-ai/kling-video/v3/standard/image-to-video
-
-ELEVENLABS_API_KEY=
-ELEVENLABS_TTS_MODEL=eleven_multilingual_v2
-USE_AI_MUSIC=
-
-LANGFUSE_PUBLIC_KEY=
-LANGFUSE_SECRET_KEY=
-LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
-
-RESEND_API_KEY=
-BIRTHDAYBOT_EMAIL_FROM=BirthdayBot <birthday@yourdomain.com>
+```bash
+cp .env.example .env
 ```
 
-Notes:
+Then edit `.env` and paste in the three keys you actually need
+(`OPENAI_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`). Everything else has
+a working default in code. `.env.example` is the source of truth for the
+full var list — required vs optional, what each one does, and what
+happens when it's absent. After filling in:
 
-- If `OPENAI_API_KEY` is missing, the app falls back to mock planning and caption generation.
-- If `FAL_KEY` is missing, the app fails the job explicitly. The stock-demo fallback was removed — generation now requires a real fal key.
-- `FAL_VIDEO_MODEL` should stay on `fal-ai/kling-video/v3/standard/image-to-video` unless the team is intentionally testing a different endpoint.
-- `ELEVENLABS_API_KEY` powers voice cloning, TTS, the speech-to-speech (Voice Changer) path used by speak-yourself mode, the instrumental music bed, AND the sung birthday song in song mode. Without it, the mux step uses `public/audio/party-music.mp3` (or a synthetic lavfi tone if that file is missing) and narration falls back to a stock voice.
-- `ELEVENLABS_TTS_MODEL` defaults to `eleven_v3` (most expressive; supports inline audio tags like `[warmly]` / `[excited]`). Older `eleven_multilingual_v2` works too if you're chasing latency.
-- `USE_AI_MUSIC` overrides the AI music behavior: set `true` to force-on, `false` to force-off. If unset, AI music is automatically enabled whenever `ELEVENLABS_API_KEY` is present, with safe fallback to the static file on any failure.
-- Stock narration voice is auto-picked from the agent plan's `narrationVoiceCue` field (e.g. "warm Punjabi-accented male, mid-energy"). The default ElevenLabs voice library is English-American, so for authentic non-English accents add voices from the EL voice library to your account and configure these env vars: `ELEVENLABS_VOICE_SPANISH`, `ELEVENLABS_VOICE_INDIAN`, `ELEVENLABS_VOICE_KOREAN`, `ELEVENLABS_VOICE_JAPANESE`, `ELEVENLABS_VOICE_AFRICAN`, `ELEVENLABS_VOICE_ARABIC`, `ELEVENLABS_VOICE_MANDARIN`, `ELEVENLABS_VOICE_BRITISH`, `ELEVENLABS_VOICE_AUSTRALIAN`. Set `ELEVENLABS_STOCK_VOICE_ID` to force a specific stock voice regardless of the cue.
-- `Langfuse` is optional but recommended for tracing prompt decisions, timings, retries, and provider outcomes during real-photo testing.
-- `RESEND_API_KEY` powers the new `/api/email/send` route. Without it, the route returns a clean `503` explaining the missing config (no silent successes). `BIRTHDAYBOT_EMAIL_FROM` is the preferred sender; falls back to `EMAIL_FROM` then to Resend's onboarding default. The recipient mailbox receives an inline-playable HTML email with a watch-link fallback.
+```bash
+npx tsx scripts/api-check.ts
+```
+
+verifies every provider's account/capability endpoint is reachable.
+
+Quick reference (full notes live in [.env.example](./.env.example)):
+
+- **Required** — `OPENAI_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`. If
+  `OPENAI_API_KEY` is missing the planner falls back to mock data; if
+  `FAL_KEY` is missing the job fails explicitly (the stock-demo fallback
+  was removed); if `ELEVENLABS_API_KEY` is missing voice cloning + AI
+  music skip and the mux uses `public/audio/party-music.mp3`.
+- **Model overrides** — `FAL_VIDEO_MODEL`, `OPENAI_PLAN_MODEL`,
+  `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STS_MODEL`,
+  `ELEVENLABS_STOCK_VOICE_ID`, `FAL_PROMPT_CHAR_LIMIT`.
+- **Cultural voice slots** — `ELEVENLABS_VOICE_{SPANISH,INDIAN,KOREAN,
+  JAPANESE,AFRICAN,ARABIC,MANDARIN,BRITISH,AUSTRALIAN}` for authentic
+  non-English accents (default catalog is English-American).
+- **Music mode** — `USE_AI_MUSIC=true|false` to force-on or force-off
+  the AI music bed.
+- **Observability** — `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,
+  `LANGFUSE_BASE_URL`. Optional but recommended for tracing prompts,
+  retries, and provider outcomes.
+- **Email delivery (Resend)** — `RESEND_API_KEY`, `EMAIL_FROM` /
+  `BIRTHDAYBOT_EMAIL_FROM`, `BIRTHDAYBOT_PUBLIC_URL`. Without these the
+  email send route returns a clean 503 and download is the only share
+  path.
 
 ## Prompt-pipeline guardrails
 
