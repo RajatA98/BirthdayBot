@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { makeId } from "@/lib/id";
+import { providerFailureMessage } from "@/lib/provider-error";
 import { GenerateRequest, JobRecord, PlanRecord } from "@/lib/types";
 import { startVideoGeneration } from "@/lib/video-service";
 
@@ -46,14 +47,15 @@ export async function POST(request: Request) {
         "[generate] startVideoGeneration failed:",
         JSON.stringify(err, null, 2)
       );
+      // Use providerFailureMessage so fal/OpenAI/ElevenLabs body.detail
+      // surfaces to the UI (e.g. "Forbidden (403): User is locked. Reason:
+      // Exhausted balance. Top up your balance at fal.ai/dashboard/billing.")
+      // instead of a bare "Forbidden" that gives the user nothing to act on.
       return NextResponse.json({
         ...initialJob,
         stage: "failed",
         statusMessage: "Video generation could not be started.",
-        error:
-          err instanceof Error
-            ? err.message
-            : "Provider startup failed before a video job was created."
+        error: providerFailureMessage(err)
       });
     }
   } catch (error) {

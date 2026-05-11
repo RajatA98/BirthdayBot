@@ -1,6 +1,7 @@
 import { fal } from "@fal-ai/client";
 
 import { emitTraceEvent } from "@/lib/langfuse";
+import { providerFailureMessage } from "@/lib/provider-error";
 import { getServerEnv } from "@/lib/server-env";
 import {
   muxSongIntoVideo,
@@ -168,66 +169,6 @@ export async function checkVideoGenerationTool(job: JobRecord) {
   };
 }
 
-function providerFailureMessage(error: unknown) {
-  if (error instanceof Error) {
-    const apiError = error as Error & { status?: number; body?: unknown };
-    const detail = formatApiErrorBody(apiError.body);
-    const baseMessage = apiError.message || "Provider request failed.";
-
-    if (detail && !baseMessage.includes(detail)) {
-      return apiError.status
-        ? `${baseMessage} (${apiError.status}): ${detail}`
-        : `${baseMessage}: ${detail}`;
-    }
-
-    return apiError.status && !baseMessage.includes(String(apiError.status))
-      ? `${baseMessage} (${apiError.status})`
-      : baseMessage;
-  }
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Provider request failed.";
-  }
-}
-
-function formatApiErrorBody(body: unknown): string | undefined {
-  if (!body || typeof body !== "object") return undefined;
-
-  const candidate = body as {
-    detail?: unknown;
-    message?: string;
-    error?: string;
-  };
-
-  if (Array.isArray(candidate.detail)) {
-    const messages = candidate.detail
-      .map((entry) => {
-        if (entry && typeof entry === "object") {
-          const item = entry as { loc?: unknown[]; msg?: unknown };
-          const path = Array.isArray(item.loc)
-            ? item.loc
-                .filter((part) => part !== "body")
-                .map((part) => String(part))
-                .join(".")
-            : undefined;
-          const msg = typeof item.msg === "string" ? item.msg : undefined;
-          if (path && msg) return `${path}: ${msg}`;
-          return msg;
-        }
-        return undefined;
-      })
-      .filter((value): value is string => Boolean(value));
-    if (messages.length) return messages.join("; ");
-  }
-
-  if (typeof candidate.detail === "string") return candidate.detail;
-  if (typeof candidate.message === "string") return candidate.message;
-  if (typeof candidate.error === "string") return candidate.error;
-
-  return undefined;
-}
 
 async function resolveFinalVideoUrl(videoUrl: string, job: JobRecord) {
   // Song mode: no voice-over, the song IS the audio. Mux the song as the
