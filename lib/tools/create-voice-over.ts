@@ -87,15 +87,17 @@ async function createVoiceOverInner(
   let voiceCloneFailureMessage: string | undefined;
 
   if (isSpeakYourself && (hasSample || cachedVoiceId) && hasConsent) {
-    let voiceId: string | undefined = cachedVoiceId;
     try {
-      if (!voiceId) {
-        voiceId = await createElevenLabsVoice(draft, apiKey);
-      }
-      const voiceOverUrl = await createElevenLabsSpeechToSpeech(
-        voiceId,
-        draft.userMessageDataUrl as string,
-        apiKey
+      const { voiceId, output: voiceOverUrl } = await withClonedVoice(
+        cachedVoiceId,
+        draft,
+        apiKey,
+        (id) =>
+          createElevenLabsSpeechToSpeech(
+            id,
+            draft.userMessageDataUrl as string,
+            apiKey
+          )
       );
 
       draft.voiceSampleName = undefined;
@@ -123,23 +125,25 @@ async function createVoiceOverInner(
   // explicitly confirmed cloning consent. Without consent we never upload
   // their voice, but we still narrate using a stock voice.
   if ((hasSample || cachedVoiceId) && hasConsent) {
-    let voiceId: string | undefined = cachedVoiceId;
     try {
-      if (!voiceId) {
-        voiceId = await createElevenLabsVoice(draft, apiKey);
-      }
-      const voiceOverUrl = await createElevenLabsSpeech(
-        voiceId,
-        addAudioTag(text, planRecord.plan.narrationVoiceCue),
+      const { voiceId, output: voiceOverUrl } = await withClonedVoice(
+        cachedVoiceId,
+        draft,
         apiKey,
-        {
-          // v3 baseline tuned for emotional birthday narration (per
-          // ElevenLabs TTS playground docs).
-          stability: 0.45,
-          similarity_boost: 0.75,
-          style: 0,
-          use_speaker_boost: false
-        }
+        (id) =>
+          createElevenLabsSpeech(
+            id,
+            addAudioTag(text, planRecord.plan.narrationVoiceCue),
+            apiKey,
+            {
+              // v3 baseline tuned for emotional birthday narration (per
+              // ElevenLabs TTS playground docs).
+              stability: 0.45,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: false
+            }
+          )
       );
 
       draft.voiceSampleName = undefined;
@@ -400,11 +404,133 @@ function pickStockVoice(planRecord: PlanRecord): string | undefined {
   return undefined;
 }
 
+// Clones are minted lazily and then reused via the voice_id the client
+// caches and passes back. Two things still eat the account's voice slots:
+// a browser that loses its cached id mints a fresh clone, and clones from
+// earlier sessions were never reclaimed. ElevenLabs caps custom voices per
+// plan, so without reclamation the account eventually drifts into
+// voice_limit_reached and *every* future clone fails.
+const clonedVoiceNamePrefix = "BirthdayBot voice ";
+// How many of our own clones survive a reclaim. Keeping more than one
+// tolerates concurrent generations racing to mint.
+const maxRetainedClonedVoices = 2;
+
+function clonedVoiceMintedAt(name?: string) {
+  const parsed = Number(name?.slice(clonedVoiceNamePrefix.length));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// Delete clones this app minted in earlier sessions, keeping the newest
+// `keep`. Deliberately matched on our own name prefix and category so we
+// can never remove a voice the user added to their own library.
+// Best-effort: reclaiming is an optimisation, never a precondition, so a
+// failure here must not block the generation.
+async function reclaimVoiceSlots(apiKey: string, keep: number) {
+  try {
+    const response = await fetch(`${elevenLabsBaseUrl}/voices`, {
+      headers: { "xi-api-key": apiKey }
+    });
+
+    if (!response.ok) return;
+
+    const body = (await response.json()) as {
+      voices?: Array<{ voice_id?: string; name?: string; category?: string }>;
+    };
+
+    const ours = (body.voices || [])
+      .filter(
+        (voice): voice is { voice_id: string; name: string; category: string } =>
+          voice.category === "cloned" &&
+          typeof voice.voice_id === "string" &&
+          Boolean(voice.name?.startsWith(clonedVoiceNamePrefix))
+      )
+      // Names carry the mint timestamp, so this puts the newest first and
+      // leaves the stale ones in the tail we delete.
+      .sort((a, b) => clonedVoiceMintedAt(b.name) - clonedVoiceMintedAt(a.name));
+
+    for (const voice of ours.slice(Math.max(keep, 0))) {
+      await deleteElevenLabsVoice(voice.voice_id, apiKey);
+    }
+  } catch {
+    // Non-fatal — fall through and let the mint attempt proceed.
+  }
+}
+
+// ElevenLabs rejects a clone once the plan's voice slots are full. That is
+// the failure the leak produces, and it is recoverable: our own stale
+// clones are exactly what's occupying the slots. Deliberately narrow, so
+// an unrelated failure (a lapsed plan, a rejected sample) never deletes
+// voices — it just falls through to the stock narrator as before.
+function isVoiceLimitError(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return /voice_limit|maximum amount of custom voices/i.test(detail);
+}
+
+// Reclaim lazily rather than before every mint: the happy path stays a
+// single API call, and we only pay for the listing when we actually hit
+// the ceiling.
+async function mintClonedVoice(draft: DraftRequest, apiKey: string) {
+  try {
+    return await createElevenLabsVoice(draft, apiKey);
+  } catch (error) {
+    if (!isVoiceLimitError(error)) throw error;
+
+    console.warn(
+      "[birthdaybot:voice_clone] voice slots full, reclaiming stale BirthdayBot clones"
+    );
+    await reclaimVoiceSlots(apiKey, maxRetainedClonedVoices);
+    return createElevenLabsVoice(draft, apiKey);
+  }
+}
+
+// A 404 voice_not_found means the cached id outlived the clone it pointed
+// at (reclaimed above, or deleted from the ElevenLabs dashboard). That is
+// recoverable — we still hold the sample. Deliberately narrow: a plan
+// lapse answers 401 ivc_not_permitted, and re-cloning that would just
+// fail again.
+function isVoiceNotFoundError(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return /voice_not_found/i.test(detail);
+}
+
+// Runs `speak` with the user's cloned voice, minting one if we don't have
+// it yet. If a cached voice_id turns out to be dead, re-mint from the
+// sample we still hold and retry once, rather than silently dropping the
+// user to a stock narrator — that fallback is what makes a clone failure
+// look like "the app just ignored my voice".
+async function withClonedVoice<T>(
+  cachedVoiceId: string | undefined,
+  draft: DraftRequest,
+  apiKey: string,
+  speak: (voiceId: string) => Promise<T>
+): Promise<{ voiceId: string; output: T }> {
+  if (!cachedVoiceId) {
+    const voiceId = await mintClonedVoice(draft, apiKey);
+    return { voiceId, output: await speak(voiceId) };
+  }
+
+  try {
+    return { voiceId: cachedVoiceId, output: await speak(cachedVoiceId) };
+  } catch (error) {
+    if (!isVoiceNotFoundError(error) || collectVoiceSamples(draft).length === 0) {
+      throw error;
+    }
+
+    console.warn(
+      "[birthdaybot:voice_clone] cached voice is gone, re-cloning from the stored sample:",
+      cachedVoiceId
+    );
+
+    const voiceId = await mintClonedVoice(draft, apiKey);
+    return { voiceId, output: await speak(voiceId) };
+  }
+}
+
 async function createElevenLabsVoice(draft: DraftRequest, apiKey: string) {
   const form = new FormData();
   const samples = collectVoiceSamples(draft);
 
-  form.append("name", `BirthdayBot voice ${Date.now()}`);
+  form.append("name", `${clonedVoiceNamePrefix}${Date.now()}`);
   for (const sample of samples) {
     form.append("files", sample);
   }

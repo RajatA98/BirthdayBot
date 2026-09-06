@@ -516,6 +516,141 @@ describe("startVideoGeneration voice-over", () => {
     expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BAUG");
   });
 
+  it("re-clones and retries when the cached voice_id no longer exists, instead of dropping to a stock voice", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // 1) TTS against the cached voice_id — the clone is gone.
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            detail: {
+              status: "voice_not_found",
+              message: "A voice with voice_id 'eleven_voice_cached' was not found."
+            }
+          }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      // 2) Re-mint from the sample we still hold.
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ voice_id: "eleven_voice_fresh" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      // 3) TTS retry against the fresh clone.
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([7, 8, 9]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true
+      })
+    );
+    const job = makeJob({ providerVoiceId: "eleven_voice_cached" });
+
+    const result = await startVideoGeneration(planRecord, job);
+
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        String(call[0]).endsWith("/v1/voices/add")
+      )
+    ).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/v1/text-to-speech/eleven_voice_fresh")
+      )
+    ).toBe(true);
+    // The user's own voice was used, so there is nothing to apologise for.
+    expect(result.providerVoiceId).toBe("eleven_voice_fresh");
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BwgJ");
+    expect(result.voiceOverError).toBeUndefined();
+  });
+
+  it("reclaims its own stale clones and retries when the account is out of voice slots", async () => {
+    process.env.FAL_KEY = "test-fal-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      // 1) First clone attempt: the plan's voice slots are full.
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            detail: {
+              status: "voice_limit_reached",
+              message: "You have reached the maximum amount of custom voices."
+            }
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      // 2) Listing, so we can find the clones this app leaked.
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            voices: [
+              { voice_id: "keep_new", name: "BirthdayBot voice 300", category: "cloned" },
+              { voice_id: "keep_mid", name: "BirthdayBot voice 200", category: "cloned" },
+              { voice_id: "stale_old", name: "BirthdayBot voice 100", category: "cloned" },
+              { voice_id: "user_own", name: "Grandma", category: "cloned" }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      // 3) DELETE of the one stale clone beyond the retained window.
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      // 4) Clone retry, now that a slot is free.
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ voice_id: "eleven_voice_new" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      // 5) TTS with the new clone.
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([7, 8, 9]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const planRecord = makePlanRecord(
+      makeDraft({
+        voiceSampleName: "sample.wav",
+        voiceSampleDataUrl: "data:audio/wav;base64,ZmFrZQ==",
+        voiceConsent: true
+      })
+    );
+
+    const result = await startVideoGeneration(planRecord, makeJob());
+
+    const deletes = fetchMock.mock.calls.filter(
+      (call) => call[1]?.method === "DELETE"
+    );
+    // Only the oldest of our own clones is reclaimed...
+    expect(deletes).toHaveLength(1);
+    expect(String(deletes[0]?.[0])).toContain("/v1/voices/stale_old");
+    // ...and a voice the user added to their own library is never touched.
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("user_own"))
+    ).toBe(false);
+    expect(result.providerVoiceId).toBe("eleven_voice_new");
+    expect(result.voiceOverUrl).toBe("data:audio/mpeg;base64,BwgJ");
+  });
+
   it("speech-to-speech: when voiceMode=speak-yourself and userMessageDataUrl is set, calls /v1/speech-to-speech/{voice_id} with the user's recording", async () => {
     process.env.FAL_KEY = "test-fal-key";
     process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";

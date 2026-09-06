@@ -68,6 +68,10 @@ type GenerationState = {
   videoUrl?: string;
   voiceOverUrl?: string;
   error?: string;
+  // Non-fatal follow-up on a video that still rendered — e.g. the clone
+  // failed and a stock narrator stood in. Kept separate from `error` so a
+  // finished video doesn't read as a failed one.
+  notice?: string;
 };
 
 const friends: Friend[] = [
@@ -661,7 +665,11 @@ function Wizard({
           job,
           videoUrl: job.videoUrl,
           voiceOverUrl: job.voiceOverUrl,
-          error: job.error || job.voiceOverError
+          // A voice-over problem only *fails* the run when the job itself
+          // failed. On a delivered video it's a note about which voice we
+          // ended up using, so it must not masquerade as a hard error.
+          error: job.stage === "failed" ? job.error || job.voiceOverError : job.error,
+          notice: job.stage === "failed" ? undefined : job.voiceOverError
         });
 
         if (isTerminal) {
@@ -1399,7 +1407,7 @@ function StepPreview({
           <section className={`bb-generation-card is-${generation.phase}`}>
             <span className="bb-card-heading">Video output</span>
             <strong>{generation.phase === "completed" ? "Video ready" : generation.phase === "failed" ? "Needs attention" : "Generate video"}</strong>
-            <small>{generation.error || generation.message}</small>
+            <small>{generation.error || generation.notice || generation.message}</small>
             <button
               className="bb-sticker-button"
               onClick={generateVideo}
