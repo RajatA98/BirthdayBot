@@ -9,7 +9,7 @@
 The product is built as a bounded agent workflow rather than a free-form chatbot. The backend analyzes the uploaded photo, creates a director-style generation plan, starts an async `fal` video job, monitors progress, muxes voice + music with `ffmpeg`, and returns a result the user can preview and download.
 
 **Live deploy:** <https://birthdaybot-five.vercel.app>
-**Latest commit on `main`:** [`9e20b12`](https://github.com/RajatA98/BirthdayBot/commit/9e20b12) — `Stop muxed video from cutting off when voice-over ends`
+**Latest commit on `main`:** [`c9bd291`](https://github.com/RajatA98/BirthdayBot/commit/c9bd291) — `Stop leaking ElevenLabs voice slots; self-heal dead cached clones`
 
 ## Current Flow
 
@@ -183,6 +183,6 @@ vercel ls
 Project handoff and branch updates live in:
 
 - [ops/HANDOFF_2026-05-09.md](./ops/HANDOFF_2026-05-09.md)
-- [ops/updates](./ops/updates) — most recent: [`2026-05-10--main--9903e76.md`](./ops/updates/2026-05-10--main--9903e76.md). **If you are an AI agent picking this project up, read that file first.**
+- [ops/updates](./ops/updates) — most recent: [`2026-09-06--main--c9bd291.md`](./ops/updates/2026-09-06--main--c9bd291.md). **If you are an AI agent picking this project up, read that file first.**
 
 Pre-push hook (installed via [scripts/install-git-hooks.sh](./scripts/install-git-hooks.sh)) auto-stages a new ops update on push and blocks empty templates — fill in Summary / Blockers / Next Context before re-pushing.
